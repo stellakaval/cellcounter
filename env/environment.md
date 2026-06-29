@@ -92,6 +92,16 @@ machine. No backend had to be disabled.
 - **Conda:** the local Anaconda install is broken (`conda-build` entry-point error) and is
   not used. `uv` + PyPI wheels replace it entirely.
 
+## Real image format (Zeiss CZI)
+
+The user's images are Zeiss **`.czi`** (read via `czifile`), axes `HTCZYX0`, `uint8`:
+
+- **Channel 0 is DAPI** (the nuclei stain to count); other channels are EdU-594 /
+  488-PDGFRa. Phase 0 / `io.py` select channel 0 for nuclei counting.
+- Some files are **Z-stacks** (e.g. 5 planes) — max-projected before counting.
+- Pixel size is in the metadata `<Distance Id="X">` in **metres/pixel**: ~0.624 µm/px for
+  the 512² fields, ~0.124 µm/px for the 2586² fields (same ~320 µm physical FOV).
+
 ## Model weight downloads (first run)
 
 First inference downloads pretrained weights:

@@ -47,25 +47,43 @@ Per-image 3-panel figures (original | StarDist | Cellpose) are written to
 `phase0_results/`, and a count table is printed. The choice of default model and whether
 fine-tuning is needed is decided **after** validating on real microscopy images.
 
-### Phase 0 results (synthetic data, this machine)
+### Phase 0 results — REAL images (`cellsamples/`, Zeiss `.czi`)
 
-| image | StarDist | Cellpose | ground truth |
-|---|---|---|---|
-| `synthetic_single.tif` | **25** | n/a¹ | 25 |
-| `synthetic_two_channel.tif` (ch0) | **20** | n/a¹ | 20 |
+Validated on a representative sample of 8 of the ~100 real DAPI/EdU images (the nuclei =
+**DAPI = channel 0**; Z-stacks max-projected). Counts are per field; these are sparse
+sorted-cell cultures, so per-field counts are naturally low (~8–21 over a ~320 µm field).
 
-StarDist `2D_versatile_fluo` matched the synthetic ground truth **exactly** and segmented
-each nucleus as a clean distinct region (ignoring the noise specks). **Gate: PASS** — a
-pretrained model already works on this data, so no fine-tuning (Phase 3) is needed for the
-synthetic case. The default-model decision and the real-data fine-tuning decision are
-**deferred** until you upload real microscopy images and re-run with `--folder`.
+| image (DAPI channel) | StarDist | Cellpose |
+|---|---|---|
+| `APOE_LDSort_OPC…` (2586², 3ch, 5 Z) | 8 | n/a¹ |
+| `E3_LDHi_3_2` (512²) | 9 | n/a¹ |
+| `E3_LDLow_1_5` (2586²) | 14 | n/a¹ |
+| `E3_LDLow_4_2` (512²) | 9 | n/a¹ |
+| `E4_1_2_5` (512²) | 16 | n/a¹ |
+| `E4_3_1_3` (512²) | 16 | n/a¹ |
+| `E4_LDHi_1_5` (512²) | 21 | n/a¹ |
+| `E4_LDLow_1_3` (512²) | 10 | n/a¹ |
 
-¹ Cellpose could not be validated here because its pretrained weights are hosted on
-**huggingface.co, which is unreachable from this network** (TLS connection reset; GitHub —
-StarDist's host — works fine). This is environmental, not a code issue: the Phase 0 script
-degraded gracefully and reported it rather than crashing. To validate Cellpose, run
-`python scripts/phase0_validate.py` on a network with HuggingFace access (or pre-place the
-`cpsam_v2` weights in `~/.cellpose/models/`); the Cellpose column will then populate.
+**Gate: PASS.** Visual inspection of the overlays (in `phase0_results/`) shows StarDist
+`2D_versatile_fluo` segments the DAPI nuclei **cleanly and accurately** on the real data —
+each bright nucleus a tight distinct region, close pairs correctly split — on both 512² and
+2586² fields and across all conditions. **No fine-tuning (Phase 3) is needed.** StarDist is
+purpose-built for fluorescent nuclei, which is exactly this data.
+
+> **Default-model note:** the build is currently configured with Cellpose-SAM as default,
+> but (a) StarDist is validated and working on your real DAPI images, and (b) Cellpose's
+> weights cannot be obtained on this machine (see ¹). Recommendation: **make StarDist the
+> default** for this nuclei-counting workflow. This is your call — flagged for Phase 1.
+
+Synthetic-data validation (run earlier) also passed: StarDist matched ground truth exactly
+(`synthetic_single.tif` → 25/25, `synthetic_two_channel.tif` ch0 → 20/20).
+
+¹ Cellpose could not be validated: its pretrained weights are hosted on **huggingface.co,
+which is unreachable from this network** (TLS connection reset at byte 0, even with the
+sandbox disabled; GitHub — StarDist's host — works fine). Environmental, not a code issue —
+the Phase 0 script degraded gracefully and reported it rather than crashing. To validate
+Cellpose, run on a network with HuggingFace access, or `export HF_ENDPOINT=https://hf-mirror.com`,
+or manually place `cpsam_v2` in `~/.cellpose/models/`.
 
 ## License & non-commercial use
 

@@ -19,6 +19,7 @@ dependencies = [
     "scipy",
     "pandas",
     "tifffile",
+    "czifile",
     "scikit-image",
     "tensorflow>=2.20,<2.22",
     "csbdeep>=0.8",

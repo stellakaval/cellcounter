@@ -32,25 +32,69 @@ SYNTHETIC_GROUND_TRUTH = {
     "synthetic_two_channel.tif": 20,  # channel 0
 }
 
-IMAGE_EXTS = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+IMAGE_EXTS = {".tif", ".tiff", ".png", ".jpg", ".jpeg", ".czi"}
+
+# Which channel holds the nuclei stain to count. For these samples channel 0 is DAPI.
+DAPI_CHANNEL = 0
 
 
-def load_2d(path: Path) -> np.ndarray:
-    """Load an image and reduce to a single 2D plane for the diagnostic.
+def load_2d(path: Path) -> tuple[np.ndarray, float | None]:
+    """Load an image and reduce to a single 2D nuclei plane for the diagnostic.
 
-    Multi-channel/stacked inputs are collapsed to channel 0 (or the first plane) so
-    each backend receives a 2D grayscale array.
+    Returns (2D float32 array, pixel_um or None). Multi-channel/stacked inputs are
+    reduced to the nuclei channel (DAPI = channel 0); Z-stacks are max-projected.
     """
-    arr = tifffile.imread(path) if path.suffix.lower() in {".tif", ".tiff"} else _imread_any(path)
+    ext = path.suffix.lower()
+    if ext == ".czi":
+        return _load_czi_2d(path)
+    arr = tifffile.imread(path) if ext in {".tif", ".tiff"} else _imread_any(path)
     arr = np.asarray(arr)
-    # Collapse to 2D: take the first plane along any leading axes until 2D.
     while arr.ndim > 2:
         # Heuristic: if last axis is small (<=4) it's likely RGB(A) -> mean over it.
         if arr.shape[-1] <= 4 and arr.ndim == 3:
             arr = arr.mean(axis=-1)
         else:
             arr = arr[0]
-    return arr.astype(np.float32)
+    return arr.astype(np.float32), None
+
+
+def _load_czi_2d(path: Path) -> tuple[np.ndarray, float | None]:
+    """Read a Zeiss CZI: select the DAPI channel, max-project Z, return (2D, pixel_um)."""
+    import re
+
+    import czifile
+
+    with czifile.CziFile(path) as czi:
+        arr = np.asarray(czi.asarray())
+        axes = list(czi.axes)  # e.g. "HTCZYX0"
+        meta = czi.metadata()
+
+    # Max-project a Z-stack (good for nuclei counting), then pick the DAPI channel,
+    # then collapse every remaining non-spatial axis by taking index 0.
+    if "Z" in axes:
+        zi = axes.index("Z")
+        arr = arr.max(axis=zi)
+        axes.pop(zi)
+    if "C" in axes:
+        ci = axes.index("C")
+        idx = [slice(None)] * arr.ndim
+        idx[ci] = min(DAPI_CHANNEL, arr.shape[ci] - 1)
+        arr = arr[tuple(idx)]
+        axes.pop(ci)
+    for ax in list(axes):
+        if ax not in ("Y", "X"):
+            i = axes.index(ax)
+            idx = [slice(None)] * arr.ndim
+            idx[i] = 0
+            arr = arr[tuple(idx)]
+            axes.pop(i)
+
+    # Pixel size: CZI stores X/Y scaling in metres/pixel.
+    pixel_um = None
+    m = re.search(r"<Distance Id=\"X\">\s*<Value>([0-9.eE+-]+)</Value>", meta)
+    if m:
+        pixel_um = float(m.group(1)) * 1e6  # m -> um
+    return arr.astype(np.float32), pixel_um
 
 
 def _imread_any(path: Path) -> np.ndarray:
@@ -142,6 +186,13 @@ def main() -> None:
         type=Path,
         default=Path(__file__).resolve().parents[1] / "phase0_results",
     )
+    parser.add_argument(
+        "--max",
+        type=int,
+        default=0,
+        help="If >0, validate an evenly-spaced sample of this many images (avoids "
+        "running every file in a large folder). 0 = all.",
+    )
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -151,11 +202,25 @@ def main() -> None:
     if not images:
         raise SystemExit(f"No images found in {args.folder}")
 
-    print(f"Phase 0: validating {len(images)} image(s) from {args.folder}\n")
+    total = len(images)
+    if args.max and args.max < total:
+        step = total / args.max
+        picked = [images[int(i * step)] for i in range(args.max)]
+        skipped = total - len(picked)
+        print(
+            f"Phase 0: sampling {len(picked)} of {total} images (evenly spaced); "
+            f"{skipped} not validated this run.\n"
+        )
+        images = picked
+    else:
+        print(f"Phase 0: validating {total} image(s) from {args.folder}\n")
+
     rows = []
     for path in images:
         print(f"Image: {path.name}")
-        img2d = load_2d(path)
+        img2d, pixel_um = load_2d(path)
+        if pixel_um:
+            print(f"    pixel size: {pixel_um:.4f} um/px; shape: {img2d.shape}")
 
         sd_labels, sd_res = run_stardist(img2d)
         sd_count = sd_res if sd_labels is not None else None
