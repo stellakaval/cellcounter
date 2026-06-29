@@ -47,6 +47,26 @@ Per-image 3-panel figures (original | StarDist | Cellpose) are written to
 `phase0_results/`, and a count table is printed. The choice of default model and whether
 fine-tuning is needed is decided **after** validating on real microscopy images.
 
+### Phase 0 results (synthetic data, this machine)
+
+| image | StarDist | Cellpose | ground truth |
+|---|---|---|---|
+| `synthetic_single.tif` | **25** | n/a¹ | 25 |
+| `synthetic_two_channel.tif` (ch0) | **20** | n/a¹ | 20 |
+
+StarDist `2D_versatile_fluo` matched the synthetic ground truth **exactly** and segmented
+each nucleus as a clean distinct region (ignoring the noise specks). **Gate: PASS** — a
+pretrained model already works on this data, so no fine-tuning (Phase 3) is needed for the
+synthetic case. The default-model decision and the real-data fine-tuning decision are
+**deferred** until you upload real microscopy images and re-run with `--folder`.
+
+¹ Cellpose could not be validated here because its pretrained weights are hosted on
+**huggingface.co, which is unreachable from this network** (TLS connection reset; GitHub —
+StarDist's host — works fine). This is environmental, not a code issue: the Phase 0 script
+degraded gracefully and reported it rather than crashing. To validate Cellpose, run
+`python scripts/phase0_validate.py` on a network with HuggingFace access (or pre-place the
+`cpsam_v2` weights in `~/.cellpose/models/`); the Cellpose column will then populate.
+
 ## License & non-commercial use
 
 The cellcounter source code is BSD-3-Clause (see [`LICENSE`](LICENSE)). Cellpose pretrained

@@ -92,6 +92,19 @@ machine. No backend had to be disabled.
 - **Conda:** the local Anaconda install is broken (`conda-build` entry-point error) and is
   not used. `uv` + PyPI wheels replace it entirely.
 
+## Model weight downloads (first run)
+
+First inference downloads pretrained weights:
+
+- **StarDist** `2D_versatile_fluo` (~5 MB) from **github.com** — works here.
+- **Cellpose** `cpsam_v2` from **huggingface.co** — this host is **unreachable from the
+  build network** (TLS connection reset, even outside the sandbox; DNS resolves fine). So
+  Cellpose weights could not be fetched during Phase 0. Options to obtain them:
+  - Run on a network with HuggingFace access (the weights cache to `~/.cellpose/models/`).
+  - Or set a mirror before running: `export HF_ENDPOINT=https://hf-mirror.com`.
+  - Or manually place `cpsam_v2` in `~/.cellpose/models/` from
+    `https://huggingface.co/mouseland/cellpose-sam`.
+
 ## Graceful degradation (design rule for Phase 1)
 
 If a backend import fails on another machine, the app must **drop that model from
