@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/.venv/
+
+# Phase 0 diagnostic output (regenerated, not source)
+phase0_results/
+
+# Model weight caches (downloaded on first run)
+.cellpose/
+.keras/
+*.h5
+*.pth
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
