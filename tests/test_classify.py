@@ -45,7 +45,11 @@ def _synthetic_4channel():
 
 def test_category_counts_recovers_known_classes():
     labels, img = _synthetic_4channel()
-    counts = classify.classify_counts(labels, img, min_um2=10, ring_um=2.0)
+    # Explicit thresholds (the percentile defaults assume many cells; here there are 4).
+    counts = classify.classify_counts(
+        labels, img, min_um2=10, ring_um=2.0,
+        thresholds={"PDGFRa": 0.5, "ASPA": 0.5, "EdU": 0.5},
+    )
     assert counts["n_cells"] == 4
     assert counts["PDGFRa+/EdU-"] == 1
     assert counts["PDGFRa+/EdU+"] == 1

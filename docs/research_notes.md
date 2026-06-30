@@ -129,13 +129,30 @@ accuracy is NOT there yet:**
 | ASPA+/EdU+ | 1651 | 1169 | −0.13 |
 | ASPA+/EdU− | 10372 | 8696 | 0.61 |
 
-So: marker (PDGFRa/ASPA) classification over-calls ~2× but has moderate per-image correlation
-(0.55–0.61); **EdU positivity does not correlate at all** (Otsu on mean nuclear intensity fails
-when positives are a minority — it thresholds within the negative population). This is the hard,
-calibration-dependent part the plan flagged. Next: a data-driven per-marker threshold tuning
-loop (and a better EdU metric than mean-in-mask), and likely the user's criteria for what counts
-as marker-positive. The infrastructure (dye channel detection, classifier, validation harness)
-is in place; the accuracy is an open problem.
+So (Otsu) marker (PDGFRa/ASPA) classification over-called ~2× but had moderate per-image
+correlation (0.55–0.61); EdU positivity did not correlate at all (Otsu thresholds within the
+negative population when positives are a minority).
+
+**Tuning (done):** the per-image "ideal" threshold to reproduce the hand counts was ~consistent
+as a percentile — PDGFRa ~p84, ASPA ~p78, EdU ~p94 — so `classify.py` now thresholds each
+marker at a tuned per-image percentile (`DEFAULT_PERCENTILES`) instead of Otsu. Result on 110
+images:
+
+| category | Otsu: AI/GT, r | Tuned: AI/GT, r |
+|---|---|---|
+| PDGFRa+/EdU− | 11819/6057, 0.55 | **7048/6057, 0.64** |
+| ASPA+/EdU− | 10372/8696, 0.61 | **10083/8696, 0.63** |
+| PDGFRa+/EdU+ | 2425/1860, −0.11 | 965/1860, 0.20 |
+| ASPA+/EdU+ | 1651/1169, −0.13 | 911/1169, −0.42 |
+
+**Honest outcome:** tuning fixed the marker over-counting — the two dominant (non-proliferating)
+categories are now within ~16% with decent per-image correlation (r≈0.63). The **EdU⁺
+proliferating sub-categories remain unreliable** (weak/negative r): intersecting two imperfect
+per-cell classifications compounds error, EdU⁺ is rare, and the image↔region mapping may be
+imperfect. This is a ceiling for pure intensity-thresholding. To go further likely needs the
+lab's actual EdU-positivity criteria, per-cell hand-correction, or a small trained classifier on
+labelled examples — not a better global threshold. Infrastructure (dye channel detection,
+classifier, percentile calibration, validation harness) is committed and reproducible.
 
 ## 6. Real data format (Phase 0)
 

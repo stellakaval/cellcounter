@@ -22,6 +22,12 @@ from .io import ImageData
 
 CATEGORIES = ["PDGFRa+/EdU+", "PDGFRa+/EdU-", "ASPA+/EdU+", "ASPA+/EdU-"]
 
+# Per-marker positivity thresholds expressed as a percentile of that image's per-nucleus
+# intensities. Calibrated against the Shiverer ground truth (the percentile each image would
+# need to reproduce the hand counts was ~consistent): PDGFRa ~p84, ASPA ~p78, EdU ~p94.
+# Per-image percentiles adapt to brightness, which fixed absolute thresholds cannot.
+DEFAULT_PERCENTILES = {"PDGFRa": 84.0, "ASPA": 78.0, "EdU": 94.0}
+
 
 def classify_cells(
     nuclei_labels: np.ndarray,
@@ -30,14 +36,17 @@ def classify_cells(
     min_um2: float = 30.0,
     ring_um: float = 2.0,
     thresholds: dict[str, float] | None = None,
+    percentiles: dict[str, float] | None = None,
 ) -> pd.DataFrame:
     """One row per surviving nucleus with per-marker mean intensity + positivity flags.
 
-    ``thresholds`` maps a marker name → fixed positivity threshold; markers absent from it use
-    Otsu over that image's per-nucleus means. Markers missing from the image are all-negative.
+    Positivity threshold for a marker is, in priority order: an absolute value from
+    ``thresholds``, else a per-image percentile from ``percentiles`` (defaults to the
+    calibrated ``DEFAULT_PERCENTILES``), else Otsu. Markers absent from the image are negative.
     """
     pixel_um = image.pixel_um
     thresholds = thresholds or {}
+    percentiles = DEFAULT_PERCENTILES if percentiles is None else percentiles
 
     geo = measure.measure(nuclei_labels, pixel_um, min_um2=min_um2)  # debris removed
     cols = ["label", "area_um2", "edu_mean", "pdgfra_mean", "aspa_mean",
@@ -68,7 +77,13 @@ def classify_cells(
             .to_numpy()
         )
         out[f"{low}_mean"] = means
-        out[f"{low}_pos"] = compare.positive_mask(means, thresholds.get(marker))
+        if marker in thresholds:
+            thr = thresholds[marker]
+        elif marker in percentiles and means.size:
+            thr = float(np.percentile(means, percentiles[marker]))
+        else:
+            thr = None  # Otsu fallback inside positive_mask
+        out[f"{low}_pos"] = compare.positive_mask(means, thr)
 
     add_marker("EdU", peri_nuclear=False)      # nuclear stain
     add_marker("PDGFRa", peri_nuclear=True)    # surface/cytoplasmic
