@@ -110,6 +110,33 @@ minimum cell size of 30 µm²** (~6 µm nucleus) brings the AI total to within ~
 mean abs error 1.3 cells, **85% of images within ±2** (94% within ±3). The size slider +
 hand-correction cover the rest. Regression check: `scripts/validate_counts.py`.
 
+## 6c. Dataset 2 (Shiverer) — marker classification, FIRST-PASS (not yet accurate)
+
+Second dataset (`Immuno 060324`, 2D projections): 4 channels **PDGFRa(647)/EdU(594)/ASPA(488)/
+DAPI(405)** — note **DAPI is channel 3**, not 0, so the nuclei channel is now detected by dye
+name from CZI metadata (`io._czi_markers`), not by index. Ground truth (`Data Analysis_Shiverer
+mice.xlsx`, RAW CELL COUNT table, rows 4–18) is per mouse × region: PDGFRa⁺/EdU±, ASPA⁺/EdU±.
+File→sheet map: `M{n} #{r}` = mouse n (col A blinded id), region r (4-col block from col C).
+
+`classify.py` segments DAPI nuclei, then scores each by marker intensity (EdU in-mask;
+PDGFRa/ASPA in a peri-nuclear ring) vs a per-image Otsu threshold. **Validated on 110 images —
+accuracy is NOT there yet:**
+
+| category | AI total | GT total | Pearson r |
+|---|---|---|---|
+| PDGFRa+/EdU+ | 2425 | 1860 | −0.11 |
+| PDGFRa+/EdU− | 11819 | 6057 | 0.55 |
+| ASPA+/EdU+ | 1651 | 1169 | −0.13 |
+| ASPA+/EdU− | 10372 | 8696 | 0.61 |
+
+So: marker (PDGFRa/ASPA) classification over-calls ~2× but has moderate per-image correlation
+(0.55–0.61); **EdU positivity does not correlate at all** (Otsu on mean nuclear intensity fails
+when positives are a minority — it thresholds within the negative population). This is the hard,
+calibration-dependent part the plan flagged. Next: a data-driven per-marker threshold tuning
+loop (and a better EdU metric than mean-in-mask), and likely the user's criteria for what counts
+as marker-positive. The infrastructure (dye channel detection, classifier, validation harness)
+is in place; the accuracy is an open problem.
+
 ## 6. Real data format (Phase 0)
 
 Zeiss `.czi` (`czifile`), axes `HTCZYX0`, uint8. **Channel 0 = DAPI** (nuclei to count); other
