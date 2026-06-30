@@ -87,17 +87,18 @@ adjustable threshold).
   is Anaconda **x86_64** → a Rosetta venv with no TensorFlow wheel and no MPS. See
   `env/environment.md`. Verified stack: TF 2.21.0 (Keras 3), torch 2.12.1 + **MPS True**,
   stardist 0.9.2, cellpose 4.2.1.1, napari 0.7.1 (PyQt6).
-- **HuggingFace is SNI-blocked on this network.** TCP to `huggingface.co:443` connects, but the
-  TLS handshake is reset the moment the SNI hostname is seen (ClientHello sent, 0 bytes read;
-  plain HTTP/80 reset too). This is a network middlebox, not a code bug or transient flake.
-  Consequence: **Cellpose's `cpsam_v2` weights (hosted on huggingface.co) cannot be downloaded
-  here.** GitHub works fine, which is why StarDist's weights download normally.
-  - Cellpose hardcodes the huggingface.co URL, so `HF_ENDPOINT` won't redirect it. To enable
-    Cellpose: fetch `cpsam_v2` from the official `huggingface.co/mouseland/cellpose-sam` on an
-    unfiltered network and place it in `~/.cellpose/models/`. (An unofficial mirror serves the
-    same path but is a torch-pickle supply-chain risk — avoided by default.)
-- **Default model = StarDist.** Validated on the real DAPI `.czi` images (Phase 0), runs on M1,
-  and is obtainable here. Cellpose stays selectable and auto-enables once its weights exist.
+- **HuggingFace access is network-dependent.** On the original network, `huggingface.co` was
+  **SNI-blocked**: TCP to `:443` connected but the TLS handshake was reset the moment the SNI
+  hostname appeared (plain HTTP/80 reset too) — a network middlebox, not a code bug. On a
+  later (faster) network the TLS handshake succeeded and the official weights downloaded
+  normally. So if Cellpose weights won't download, it's the network, not the tool.
+- **Cellpose is now enabled.** The official `cpsam_v2` (~1.23 GB, Cellpose-SAM) was fetched
+  from `huggingface.co/mouseland/cellpose-sam` into `~/.cellpose/models/` and validated:
+  `list_models()` returns both, and on `E4_LDHi_1_5` StarDist→21 vs Cellpose-SAM→19.
+- **Default model = StarDist.** Validated on the real DAPI `.czi` images (Phase 0), runs on M1.
+  **Cellpose-SAM is now selectable too** (auto-enabled because its weights are present). Note
+  Cellpose hardcodes the huggingface.co URL, so `HF_ENDPOINT` won't redirect it — fetch the
+  weights from the official source on an unfiltered network if moving to another machine.
 
 ## 6. Real data format (Phase 0)
 

@@ -13,12 +13,13 @@ per-cell measurements to CSV — replacing a fragile Fiji/ImageJ "Analyze Partic
 
 ## Models
 
-- **Default: Cellpose-SAM** (`cellpose` ≥ 4.2, PyTorch/MPS) — robust on Apple Silicon,
-  generalist, no diameter tuning needed.
-- **Alternate: StarDist** `2D_versatile_fluo` (TensorFlow) — strong on fluorescent nuclei.
+- **Default: StarDist** `2D_versatile_fluo` (TensorFlow) — purpose-built for fluorescent
+  nuclei (DAPI), validated on the real images, and runs on Apple Silicon.
+- **Alternate: Cellpose-SAM** (`cellpose` ≥ 4.2, PyTorch/MPS) — generalist; enabled once its
+  weights (`cpsam_v2`) are present in `~/.cellpose/models/`.
 
-Phase 0 runs **both** on each image so you can compare counts before picking a default for
-your own data.
+Both are available in the model dropdown so you can compare counts on your own data (e.g. on
+`E4_LDHi_1_5`: StarDist → 21, Cellpose-SAM → 19).
 
 ## Install (Apple Silicon, verified)
 
@@ -37,9 +38,21 @@ the resolved package versions, and platform notes.
 
 ## Use it
 
+Open the **Terminal** app on the Mac and run these three lines (the first two are one-time
+per terminal session):
+
 ```bash
-cellcounter          # launches napari with the cellcounter panel
+cd ~/Desktop/cellcounter
+source .venv/bin/activate
+cellcounter
 ```
+
+A napari window opens with the **cellcounter** panel docked on the right. (Tip: in this
+project's terminal you can also type `! cellcounter` to launch it directly.)
+
+> **Note:** the app must be started from a normal desktop login session (your Terminal) so it
+> can open a window. It cannot be launched from a remote/headless/automated shell — that has no
+> display to draw on.
 
 Then **drag a `.czi` (or TIFF) onto the window** — the DAPI channel is segmented automatically
 and a big cell count appears, with an editable `nuclei` overlay. From there:
