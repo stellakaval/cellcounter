@@ -68,12 +68,20 @@ export interface ProjectStatus {
 
 // ---- project endpoints ----
 export const listProjects = () => api.get<Project[]>('/projects').then(r => r.data)
-export const createProject = (body: { name: string; source_folder: string }) =>
+export const createProject = (body: { name: string; source_folder?: string }) =>
   api.post<Project>('/projects', body).then(r => r.data)
 export const getProject = (id: number) => api.get<Project>(`/projects/${id}`).then(r => r.data)
 export const deleteProject = (id: number) => api.delete(`/projects/${id}`)
 export const importFolder = (id: number) =>
   api.post(`/projects/${id}/import`).then(r => r.data)
+
+export const uploadFiles = (id: number, files: FileList | File[]) => {
+  const form = new FormData()
+  for (const f of Array.from(files)) form.append('files', f)
+  return api.post(`/projects/${id}/upload`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data)
+}
 export const getProjectStatus = (id: number) =>
   api.get<ProjectStatus>(`/projects/${id}/status`).then(r => r.data)
 export const updateSettings = (id: number, settings: ProjectSettings) =>
