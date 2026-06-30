@@ -1,0 +1,17 @@
+name: cellcounter
+display_name: cellcounter
+contributions:
+  commands:
+    - id: cellcounter.get_reader
+      title: Read Zeiss CZI
+      python_name: cellcounter.io:napari_get_reader
+    - id: cellcounter.make_widget
+      title: cellcounter
+      python_name: cellcounter.widget:make_widget
+  readers:
+    - command: cellcounter.get_reader
+      filename_patterns: ['*.czi']
+      accepts_directories: false
+  widgets:
+    - command: cellcounter.make_widget
+      display_name: cellcounter

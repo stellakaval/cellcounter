@@ -35,5 +35,11 @@ dev = ["pytest", "matplotlib"]
 [project.scripts]
 cellcounter = "cellcounter.widget:main"
 
+[project.entry-points."napari.manifest"]
+cellcounter = "cellcounter:napari.yaml"
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+cellcounter = ["napari.yaml"]

@@ -5,9 +5,10 @@ image onto a [napari](https://napari.org) window and an AI model segments and co
 cells; you can then correct mistakes by hand, filter by real-world size (µm²), and export
 per-cell measurements to CSV — replacing a fragile Fiji/ImageJ "Analyze Particles" macro.
 
-> **Status: Phase 0 (setup + model validation).** The environment, synthetic test data, and
-> the model-validation diagnostic are in place. The napari UI (drag-and-drop auto-count,
-> editing, filtering, export) is **not built yet** — that is Phase 1.
+> **Status: Phase 1 in progress.** Phase 0 (model validation) passed — StarDist works on the
+> real DAPI images. The core tool now exists: **drop a `.czi` → automatic cell count** with an
+> editable overlay, live µm²/circularity filters, and CSV export. Multi-channel colocalization
+> (% EdU+, PDGFRa-gated) and folder batch are the next milestones (M4–M5).
 
 ## Models
 
@@ -32,6 +33,25 @@ uv pip install -e ".[dev]"
 
 See [`env/environment.md`](env/environment.md) for the exact step-by-step install order,
 the resolved package versions, and platform notes.
+
+## Use it
+
+```bash
+cellcounter          # launches napari with the cellcounter panel
+```
+
+Then **drag a `.czi` (or TIFF) onto the window** — the DAPI channel is segmented automatically
+and a big cell count appears, with an editable `nuclei` overlay. From there:
+
+- **Adjust display contrast** to actually see dim DAPI (view only; doesn't change the count).
+- **Min/max area (µm²)** and **circularity** sliders filter the count live and
+  non-destructively — this is the "Analyze Particles" step, made interactive.
+- **Fix the AI** with napari's brush/erase on the `nuclei` layer, then click **Recount**.
+- **Sensitivity** trades more vs. fewer detections (one knob instead of Fiji's threshold dialogs).
+- **Export CSV** writes a per-cell table (areas in µm²) plus a one-row summary.
+
+No Fiji concepts (blur, threshold, watershed) — the AI replaces all of that. See
+[`docs/research_notes.md`](docs/research_notes.md) for the design rationale.
 
 ## Phase 0 — model validation
 
