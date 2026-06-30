@@ -5,10 +5,11 @@ image onto a [napari](https://napari.org) window and an AI model segments and co
 cells; you can then correct mistakes by hand, filter by real-world size (µm²), and export
 per-cell measurements to CSV — replacing a fragile Fiji/ImageJ "Analyze Particles" macro.
 
-> **Status: Phase 1 in progress.** Phase 0 (model validation) passed — StarDist works on the
-> real DAPI images. The core tool now exists: **drop a `.czi` → automatic cell count** with an
-> editable overlay, live µm²/circularity filters, and CSV export. Multi-channel colocalization
-> (% EdU+, PDGFRa-gated) and folder batch are the next milestones (M4–M5).
+> **Status: Phase 1 MVP complete (pending live GUI check on a Mac with a display).** Phase 0
+> passed (StarDist works on the real DAPI images). The tool now does the full loop: **drop a
+> `.czi` → automatic cell count**, editable overlay, live µm²/circularity filters, CSV export,
+> multi-channel colocalization (% EdU+ and % EdU+ within PDGFRa+), folder batch → one CSV, and
+> save/load session. 23 unit tests pass on CPU.
 
 ## Models
 
@@ -49,6 +50,11 @@ and a big cell count appears, with an editable `nuclei` overlay. From there:
 - **Fix the AI** with napari's brush/erase on the `nuclei` layer, then click **Recount**.
 - **Sensitivity** trades more vs. fewer detections (one knob instead of Fiji's threshold dialogs).
 - **Export CSV** writes a per-cell table (areas in µm²) plus a one-row summary.
+- **Colocalization**: pick the EdU (and optional PDGFRa) channel → get **% EdU+ nuclei** and
+  **% EdU+ within PDGFRa+ OPCs** (positivity by per-nucleus marker intensity).
+- **Batch folder…** runs the current settings over a whole folder → one combined CSV
+  (one row per image) — this replaces the ImageJ macro.
+- **Save/Load session** persists the (edited) labels + all parameters for reproducibility.
 
 No Fiji concepts (blur, threshold, watershed) — the AI replaces all of that. See
 [`docs/research_notes.md`](docs/research_notes.md) for the design rationale.

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import compare, measure, segment
+from . import batch, compare, measure, segment, session
 
 
 class CounterWidget:
@@ -60,6 +60,10 @@ class CounterWidget:
         self.w_coloc = PushButton(text="Colocalization")
         self.w_coloc_result = Label(label="Coloc", value="—")
 
+        self.w_batch = PushButton(text="Batch folder…")
+        self.w_save = PushButton(text="Save session")
+        self.w_load = PushButton(text="Load session")
+
         from magicgui.widgets import Container
 
         self.container = Container(
@@ -79,6 +83,9 @@ class CounterWidget:
                 self.w_pdgfra_channel,
                 self.w_coloc,
                 self.w_coloc_result,
+                self.w_batch,
+                self.w_save,
+                self.w_load,
             ],
             labels=True,
         )
@@ -92,6 +99,9 @@ class CounterWidget:
         self.w_recount.clicked.connect(self._recount_from_labels)
         self.w_export.clicked.connect(self._export)
         self.w_coloc.clicked.connect(self._run_coloc)
+        self.w_batch.clicked.connect(self._run_batch)
+        self.w_save.clicked.connect(self._save_session)
+        self.w_load.clicked.connect(self._load_session)
 
         # Auto-count whenever an Image layer is added (drag-drop or File→Open).
         viewer.layers.events.inserted.connect(self._on_layer_inserted)
@@ -260,6 +270,91 @@ class CounterWidget:
         }
         cells_path, summary_path = measure.export_csv(kept, summary, path)
         self.w_status.value = f"Wrote {cells_path.name} + {summary_path.name}"
+
+
+    # --- batch + session ----------------------------------------------------------------
+
+    def _run_batch(self, *_):
+        from napari.qt.threading import thread_worker
+        from qtpy.QtWidgets import QFileDialog
+
+        folder = QFileDialog.getExistingDirectory(None, "Choose a folder of images")
+        if not folder:
+            return
+        out, _ = QFileDialog.getSaveFileName(
+            None, "Save combined CSV", str(Path(folder) / "cellcounter_batch.csv"), "CSV (*.csv)"
+        )
+        if not out:
+            return
+        edu = int(self.w_edu_channel.value)
+        pdgfra = int(self.w_pdgfra_channel.value)
+        kw = dict(
+            model_name=self.w_model.value,
+            sensitivity=float(self.w_sensitivity.value),
+            pixel_um=self.w_pixel.value or None,
+            min_um2=float(self.w_min_area.value),
+            max_um2=float(self.w_max_area.value) or None,
+            min_circ=float(self.w_circ.value),
+            edu_channel=edu if edu >= 0 else None,
+            pdgfra_channel=pdgfra if pdgfra >= 0 else None,
+        )
+        self.w_status.value = "Batch running…"
+
+        @thread_worker
+        def _work():
+            return batch.batch_folder(folder, out, **kw)
+
+        worker = _work()
+        worker.returned.connect(
+            lambda df: setattr(self.w_status, "value", f"Batch done: {len(df)} images → {Path(out).name}")
+        )
+        worker.errored.connect(lambda e: setattr(self.w_status, "value", f"Batch failed: {e}"))
+        worker.start()
+
+    def _save_session(self, *_):
+        if self._labels_layer is None:
+            self.w_status.value = "Nothing to save yet."
+            return
+        from qtpy.QtWidgets import QFileDialog
+
+        folder = QFileDialog.getExistingDirectory(None, "Choose a folder to save the session")
+        if not folder:
+            return
+        params = {
+            "source": self._image_layer.metadata.get("source") if self._image_layer else None,
+            "model": self.w_model.value,
+            "channel": self.w_channel.value,
+            "pixel_um": self.w_pixel.value or None,
+            "min_area_um2": float(self.w_min_area.value),
+            "max_area_um2": float(self.w_max_area.value) or None,
+            "min_circularity": float(self.w_circ.value),
+            "sensitivity": float(self.w_sensitivity.value),
+        }
+        session.save_session(folder, np.asarray(self._labels_layer.data), params)
+        self.w_status.value = f"Session saved to {Path(folder).name}"
+
+    def _load_session(self, *_):
+        from qtpy.QtWidgets import QFileDialog
+
+        folder = QFileDialog.getExistingDirectory(None, "Choose a saved session folder")
+        if not folder:
+            return
+        labels, params = session.load_session(folder)
+        if params.get("pixel_um"):
+            self.w_pixel.value = round(float(params["pixel_um"]), 4)
+        for key, w in [
+            ("min_area_um2", self.w_min_area),
+            ("max_area_um2", self.w_max_area),
+            ("min_circularity", self.w_circ),
+            ("sensitivity", self.w_sensitivity),
+        ]:
+            if params.get(key) is not None:
+                w.value = float(params[key])
+        self._labels_layer = self.viewer.add_labels(
+            labels, name="nuclei", metadata={"cellcounter_result": True}
+        )
+        self._recount_from_labels()
+        self.w_status.value = f"Loaded session from {Path(folder).name}"
 
 
 def make_widget(napari_viewer):
