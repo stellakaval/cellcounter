@@ -1,4 +1,4 @@
-"""Per-image endpoints: table rows, record, PNG render, thumbnail, detections JSON."""
+"""Per-image endpoints: table rows, record, PNG render, thumbnail, detections JSON, corrections."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import json
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from cellcounter import io
@@ -16,6 +17,13 @@ from ..models import Image
 from ..schemas import Detection, DetectionsResponse, ImageRow
 from ..services import rendering
 from ..services.processing import _artifacts
+
+_EMPTY_CORRECTIONS = {"deleted": [], "added": []}
+
+
+class CorrectionsBody(BaseModel):
+    deleted: list[int]            # AI detection labels removed by the user
+    added: list[dict]             # manually placed points: {id, cx, cy}
 
 router = APIRouter(prefix="/api", tags=["images"])
 
@@ -125,3 +133,22 @@ def detections(
         height=image.height,
         detections=out,
     )
+
+
+@router.get("/images/{image_id}/corrections")
+def get_corrections(image_id: int, session: Session = Depends(get_session)) -> dict:
+    image = _require_done(session.get(Image, image_id))
+    path = _artifacts(image.project_id, image_id)["corrections"]
+    if not path.exists():
+        return _EMPTY_CORRECTIONS
+    return json.loads(path.read_text())
+
+
+@router.put("/images/{image_id}/corrections")
+def put_corrections(
+    image_id: int, body: CorrectionsBody, session: Session = Depends(get_session)
+) -> dict:
+    image = _require_done(session.get(Image, image_id))
+    path = _artifacts(image.project_id, image_id)["corrections"]
+    path.write_text(json.dumps({"deleted": body.deleted, "added": body.added}))
+    return {"ok": True}

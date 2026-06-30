@@ -32,6 +32,7 @@ def _artifacts(project_id: int, image_id: int) -> dict:
         "labels": d / "labels.tif",
         "detections": d / "detections.csv",
         "contours": d / "contours.json",
+        "corrections": d / "corrections.json",
         "render_dapi": d / "render_dapi.png",
         "meta": d / "meta.json",
     }

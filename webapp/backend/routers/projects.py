@@ -132,6 +132,7 @@ def project_status(
     for img in images:
         counts[img.status] = counts.get(img.status, 0) + 1
     return StatusResponse(
+        total=len(images),
         **counts,
         images=[
             {

@@ -56,6 +56,7 @@ class DetectionsResponse(BaseModel):
 
 
 class StatusResponse(BaseModel):
+    total: int
     queued: int
     processing: int
     done: int

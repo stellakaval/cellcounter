@@ -97,6 +97,16 @@ export const setReview = (imageId: number, review_status: string) =>
 export const getReviewProgress = (projectId: number) =>
   api.get<ReviewProgress>(`/projects/${projectId}/review-progress`).then(r => r.data)
 
+export interface Corrections {
+  deleted: number[]        // AI detection labels removed by user
+  added: { id: string; cx: number; cy: number }[]  // manually added points
+}
+
+export const getCorrections = (imageId: number) =>
+  api.get<Corrections>(`/images/${imageId}/corrections`).then(r => r.data)
+export const putCorrections = (imageId: number, body: Corrections) =>
+  api.put(`/images/${imageId}/corrections`, body).then(r => r.data)
+
 export const renderUrl = (imageId: number, channel?: number) =>
   channel !== undefined ? `/api/images/${imageId}/render?channel=${channel}` : `/api/images/${imageId}/render`
 export const thumbnailUrl = (imageId: number) => `/api/images/${imageId}/thumbnail`

@@ -31,10 +31,21 @@ def build_workbook(
     summary_rows = []
     per_cell_frames = []
     for image in images:
+        # Apply user corrections to get the reviewed count.
+        corr_path = _artifacts(project_id, image.id)["corrections"]
+        corrections = {"deleted": [], "added": []}
+        if corr_path.exists():
+            import json as _json
+            corrections = _json.loads(corr_path.read_text())
+        reviewed_count = None
+        if image.filtered_count is not None:
+            reviewed_count = image.filtered_count - len(corrections["deleted"]) + len(corrections["added"])
+
         summary_rows.append(
             {
                 "image": image.filename,
-                "nucleus_count": image.filtered_count,
+                "nucleus_count": reviewed_count if reviewed_count is not None else image.filtered_count,
+                "ai_count": image.filtered_count,
                 "raw_count": image.raw_count,
                 "review_status": image.review_status,
                 "status": image.status,
