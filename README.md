@@ -30,8 +30,12 @@ TensorFlow wheel and won't get Metal/MPS). We use a `uv`-managed arm64 build:
 uv python install 3.11.15
 uv venv --python cpython-3.11.15-macos-aarch64-none .venv
 source .venv/bin/activate
-uv pip install -e ".[dev]"
+uv pip install ".[dev]"
 ```
+
+(Use a **regular** install, not `-e`/editable: this machine's Python doesn't process the
+editable `.pth`, so an editable install makes `import cellcounter` fail. Re-run
+`uv pip install .` after changing the source.)
 
 See [`env/environment.md`](env/environment.md) for the exact step-by-step install order,
 the resolved package versions, and platform notes.
@@ -100,29 +104,24 @@ sorted-cell cultures, so per-field counts are naturally low (~8–21 over a ~320
 | `E3_LDLow_4_2` (512²) | 9 | n/a¹ |
 | `E4_1_2_5` (512²) | 16 | n/a¹ |
 | `E4_3_1_3` (512²) | 16 | n/a¹ |
-| `E4_LDHi_1_5` (512²) | 21 | n/a¹ |
-| `E4_LDLow_1_3` (512²) | 10 | n/a¹ |
+| `E4_LDHi_1_5` (512²) | 21 | 19 |
+| `E4_LDLow_1_3` (512²) | 10 | — |
 
 **Gate: PASS.** Visual inspection of the overlays (in `phase0_results/`) shows StarDist
 `2D_versatile_fluo` segments the DAPI nuclei **cleanly and accurately** on the real data —
 each bright nucleus a tight distinct region, close pairs correctly split — on both 512² and
 2586² fields and across all conditions. **No fine-tuning (Phase 3) is needed.** StarDist is
-purpose-built for fluorescent nuclei, which is exactly this data.
-
-> **Default-model note:** the build is currently configured with Cellpose-SAM as default,
-> but (a) StarDist is validated and working on your real DAPI images, and (b) Cellpose's
-> weights cannot be obtained on this machine (see ¹). Recommendation: **make StarDist the
-> default** for this nuclei-counting workflow. This is your call — flagged for Phase 1.
+purpose-built for fluorescent nuclei, which is exactly this data, so it is the **default**;
+Cellpose-SAM is selectable for comparison (e.g. `E4_LDHi_1_5`: StarDist 21 vs Cellpose 19).
 
 Synthetic-data validation (run earlier) also passed: StarDist matched ground truth exactly
 (`synthetic_single.tif` → 25/25, `synthetic_two_channel.tif` ch0 → 20/20).
 
-¹ Cellpose could not be validated: its pretrained weights are hosted on **huggingface.co,
-which is unreachable from this network** (TLS connection reset at byte 0, even with the
-sandbox disabled; GitHub — StarDist's host — works fine). Environmental, not a code issue —
-the Phase 0 script degraded gracefully and reported it rather than crashing. To validate
-Cellpose, run on a network with HuggingFace access, or `export HF_ENDPOINT=https://hf-mirror.com`,
-or manually place `cpsam_v2` in `~/.cellpose/models/`.
+> The 8-image table above is StarDist-only because the original validation network
+> SNI-blocked `huggingface.co`, so Cellpose's weights couldn't be fetched then. On a later
+> network the official `cpsam_v2` downloaded fine and Cellpose was validated. If Cellpose
+> weights ever fail to download it's the network — fetch them from the official source and
+> place in `~/.cellpose/models/`.
 
 ## License & non-commercial use
 
