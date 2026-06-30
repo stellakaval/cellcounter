@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import measure, segment
+from . import compare, measure, segment
 
 
 class CounterWidget:
@@ -52,6 +52,14 @@ class CounterWidget:
         self.w_count = Label(label="Cells", value="—")
         self.w_status = Label(label="", value="Drop an image to begin.")
 
+        # Colocalization (multi-channel): which channel is EdU / PDGFRa.
+        self.w_edu_channel = ComboBox(label="EdU channel", choices=[("none", -1)], value=-1)
+        self.w_pdgfra_channel = ComboBox(
+            label="PDGFRa channel", choices=[("none", -1)], value=-1
+        )
+        self.w_coloc = PushButton(text="Colocalization")
+        self.w_coloc_result = Label(label="Coloc", value="—")
+
         from magicgui.widgets import Container
 
         self.container = Container(
@@ -67,6 +75,10 @@ class CounterWidget:
                 self.w_sensitivity,
                 self.w_recount,
                 self.w_export,
+                self.w_edu_channel,
+                self.w_pdgfra_channel,
+                self.w_coloc,
+                self.w_coloc_result,
             ],
             labels=True,
         )
@@ -79,6 +91,7 @@ class CounterWidget:
         self.w_channel.changed.connect(self._on_channel_change)
         self.w_recount.clicked.connect(self._recount_from_labels)
         self.w_export.clicked.connect(self._export)
+        self.w_coloc.clicked.connect(self._run_coloc)
 
         # Auto-count whenever an Image layer is added (drag-drop or File→Open).
         viewer.layers.events.inserted.connect(self._on_layer_inserted)
@@ -102,6 +115,12 @@ class CounterWidget:
         if names:
             self.w_channel.choices = [(n, i) for i, n in enumerate(names)]
             self.w_channel.value = 0
+            # Marker-role dropdowns: include a "none" option; guess sensible defaults.
+            roles = [("none", -1)] + [(n, i) for i, n in enumerate(names)]
+            self.w_edu_channel.choices = roles
+            self.w_pdgfra_channel.choices = roles
+            self.w_edu_channel.value = len(names) - 1  # EdU is typically the last channel
+            self.w_pdgfra_channel.value = 1 if len(names) >= 3 else -1
         self._resegment()
 
     def _current_channel_image(self) -> np.ndarray | None:
@@ -179,6 +198,33 @@ class CounterWidget:
     def _on_channel_change(self, *_):
         if self._image_layer is not None and not self._busy:
             self._resegment()
+
+    def _run_coloc(self, *_):
+        """Compute % EdU+ (and % EdU+ within PDGFRa+) from current nuclei + marker channels."""
+        if self._labels_layer is None or self._image_layer is None:
+            self.w_coloc_result.value = "Count cells first."
+            return
+        channels = self._image_layer.metadata.get("channels")
+        if channels is None or getattr(channels, "ndim", 2) != 3:
+            self.w_coloc_result.value = "Need a multi-channel image."
+            return
+        edu_idx = int(self.w_edu_channel.value)
+        if edu_idx < 0:
+            self.w_coloc_result.value = "Pick the EdU channel."
+            return
+        pdgfra_idx = int(self.w_pdgfra_channel.value)
+        pdgfra = np.asarray(channels[pdgfra_idx]) if pdgfra_idx >= 0 else None
+        res = compare.colocalize(
+            np.asarray(self._labels_layer.data),
+            np.asarray(channels[edu_idx]),
+            pdgfra,
+            pixel_um=self.w_pixel.value or None,
+        )
+        txt = f"{res.pct_edu_pos:.1f}% EdU+ ({res.n_edu_pos}/{res.n_nuclei})"
+        if res.pct_edu_in_pdgfra is not None:
+            txt += f"; {res.pct_edu_in_pdgfra:.1f}% EdU+ in PDGFRa+ ({res.n_pdgfra_pos})"
+        self.w_coloc_result.value = txt
+        self._last_coloc = res
 
     # --- export -------------------------------------------------------------------------
 
