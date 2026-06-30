@@ -50,7 +50,7 @@ def build_workbook(
             path = _artifacts(project_id, image.id)["detections"]
             if path.exists():
                 df = measure.apply_filters(
-                    pd.read_parquet(path), image.pixel_um,
+                    pd.read_csv(path), image.pixel_um,
                     project.min_um2, project.max_um2, project.min_circ,
                 )
                 df = df.copy()

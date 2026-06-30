@@ -100,7 +100,7 @@ def detections(
     image = _require_done(session.get(Image, image_id))
     paths = _artifacts(image.project_id, image_id)
 
-    props = pd.read_parquet(paths["detections"])
+    props = pd.read_csv(paths["detections"])
     polys = json.loads(paths["contours"].read_text()) if paths["contours"].exists() else {}
 
     out: list[Detection] = []

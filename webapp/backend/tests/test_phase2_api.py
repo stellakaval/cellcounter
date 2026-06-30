@@ -58,7 +58,7 @@ def _fake_done_project(pixel_um=0.5):
         }
     )
     paths = _artifacts(pid, iid)
-    df.to_parquet(paths["detections"], index=False)
+    df.to_csv(paths["detections"], index=False)
     paths["contours"].write_text(json.dumps({"1": [[8, 8], [12, 12]]}))
     paths["meta"].write_text(json.dumps({"pixel_um": pixel_um, "width": 100, "height": 100}))
     return pid, iid
@@ -105,7 +105,7 @@ def test_settings_matches_apply_filters(data_root):
     client = TestClient(app)
     client.put(f"/api/projects/{pid}/settings", json={"min_um2": 20.0, "min_circ": 0.75})
 
-    df = pd.read_parquet(_artifacts(pid, iid)["detections"])
+    df = pd.read_csv(_artifacts(pid, iid)["detections"])
     expected = len(measure.apply_filters(df, 0.5, 20.0, None, 0.75))
     rows = client.get(f"/api/projects/{pid}/images").json()
     assert rows[0]["filtered_count"] == expected

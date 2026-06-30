@@ -1,8 +1,11 @@
 """Re-apply the project-wide filters to every processed image — without re-segmenting.
 
 This is the cheap path the live FilterPanel uses: read each image's cached per-object table
-(detections.parquet), run ``measure.apply_filters`` (pure row selection), and update the
+(detections.csv), run ``measure.apply_filters`` (pure row selection), and update the
 ``filtered_count`` cache. Milliseconds per image.
+
+(CSV, not parquet: pyarrow's bundled Abseil collides with TensorFlow's and deadlocks
+StarDist's tf.data prefetch when both load in one process — so the backend avoids pyarrow.)
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ def recompute_project_counts(session: Session, project_id: int) -> list[dict]:
         path = _artifacts(project_id, image.id)["detections"]
         if not path.exists():
             continue
-        df = pd.read_parquet(path)
+        df = pd.read_csv(path)
         filtered = measure.apply_filters(
             df, image.pixel_um, project.min_um2, project.max_um2, project.min_circ
         )

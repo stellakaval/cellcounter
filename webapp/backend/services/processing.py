@@ -30,7 +30,7 @@ def _artifacts(project_id: int, image_id: int) -> dict:
     d = config.image_dir(project_id, image_id)
     return {
         "labels": d / "labels.tif",
-        "detections": d / "detections.parquet",
+        "detections": d / "detections.csv",
         "contours": d / "contours.json",
         "render_dapi": d / "render_dapi.png",
         "meta": d / "meta.json",
@@ -66,7 +66,7 @@ def process_image(image_id: int) -> None:
 
             paths = _artifacts(image.project_id, image_id)
             tifffile.imwrite(paths["labels"], labels.astype(np.int32))
-            props.to_parquet(paths["detections"], index=False)
+            props.to_csv(paths["detections"], index=False)
             paths["contours"].write_text(
                 json.dumps({int(r.label): r.polygon for r in contours.itertuples()})
             )
