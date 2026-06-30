@@ -52,6 +52,45 @@ def regionprops_df(
     )
 
 
+def contours_df(
+    labels: np.ndarray, tolerance: float = 1.0
+) -> pd.DataFrame:
+    """One row per labelled cell: its outline as a simplified polygon (image px coords).
+
+    Used by the web overlay (colored outlines + numbered labels). Works per-object on the
+    region's small bbox crop — ``find_contours`` on the whole image then masking per label
+    would be O(image) per cell. The longest contour is kept, offset back to image
+    coordinates, and Douglas–Peucker–simplified (``approximate_polygon``) to cut vertices.
+
+    Returns columns ``label`` (int) and ``polygon`` (list of ``[x, y]`` int pairs, where x is
+    column and y is row — same convention as ``regionprops_df``'s centroid_x/centroid_y).
+    Merge with ``regionprops_df`` on ``label`` so each detection carries geometry + measures.
+    """
+    from skimage.measure import approximate_polygon, find_contours, regionprops
+
+    if labels is None or labels.max() == 0:
+        return pd.DataFrame(columns=["label", "polygon"])
+
+    rows = []
+    for region in regionprops(labels):
+        min_row, min_col, _, _ = region.bbox
+        # Pad the crop by 1px so contours of objects touching the bbox edge close cleanly.
+        crop = np.pad(region.image.astype(float), 1, mode="constant")
+        contours = find_contours(crop, 0.5)
+        if not contours:
+            continue
+        contour = max(contours, key=len)  # (row, col) coords in padded-crop space
+        contour = approximate_polygon(contour, tolerance=tolerance)
+        # Undo the 1px pad, offset to full-image coords, emit as [x(col), y(row)].
+        poly = [
+            [int(round(c - 1 + min_col)), int(round(r - 1 + min_row))]
+            for r, c in contour
+        ]
+        rows.append({"label": int(region.label), "polygon": poly})
+
+    return pd.DataFrame(rows, columns=["label", "polygon"])
+
+
 def apply_filters(
     df: pd.DataFrame,
     pixel_um: float | None,

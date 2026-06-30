@@ -30,7 +30,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "matplotlib"]
+dev = ["pytest", "matplotlib", "httpx"]
+# Web app backend (Phase 2). Optional so the napari install is unaffected.
+web = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pillow",
+    "openpyxl",
+    "sqlmodel",
+    "pyarrow",
+    "python-multipart",
+]
 
 [project.scripts]
 cellcounter = "cellcounter.widget:main"

@@ -1,0 +1,61 @@
+"""SQLModel tables: Project and Image.
+
+Per-object detection data is NOT in the DB — it lives in parquet/JSON on disk (the access
+pattern is always "all detections for one image"). The DB keeps light state: settings,
+status, and the two count caches (``raw_count`` pre-filter, ``filtered_count`` after the
+project-wide filters).
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from sqlmodel import Field, SQLModel
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Project(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    source_folder: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
+
+    # Segmentation params (set during calibration; changing these needs a re-segment).
+    model_name: str = "StarDist fluo"
+    sensitivity: float = 0.5
+
+    # Project-wide filters (live; re-applied to cached tables without re-segmenting).
+    min_um2: float = 30.0
+    max_um2: float | None = None
+    min_circ: float = 0.0
+
+    # Optional colocalization channels (EdU = proliferating; secondary metric).
+    edu_channel: int | None = None
+    pdgfra_channel: int | None = None
+
+
+class Image(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    filename: str
+    source_path: str
+
+    width: int | None = None
+    height: int | None = None
+    pixel_um: float | None = None
+    n_channels: int | None = None
+    channel_names: str | None = None  # JSON-encoded list
+    dapi_channel: int = 0
+
+    status: str = "queued"  # queued | processing | done | error
+    error: str | None = None
+
+    raw_count: int | None = None        # nuclei detected before filters
+    filtered_count: int | None = None   # after project-wide filters (cache)
+
+    review_status: str = "unreviewed"   # unreviewed | approved | needs_fix
+    is_calibration: bool = False
+    processed_at: datetime | None = None
