@@ -1,0 +1,96 @@
+import axios from 'axios'
+
+export const api = axios.create({ baseURL: '/api' })
+
+// ---- types ----
+export interface Project {
+  id: number
+  name: string
+  source_folder: string
+  created_at: string
+  model_name: string
+  sensitivity: number
+  min_um2: number | null
+  max_um2: number | null
+  min_circ: number | null
+}
+
+export interface ImageRow {
+  id: number
+  filename: string
+  status: 'queued' | 'processing' | 'done' | 'error'
+  raw_count: number | null
+  filtered_count: number | null
+  review_status: 'unreviewed' | 'approved' | 'needs_fix'
+  width: number | null
+  height: number | null
+}
+
+export interface Detection {
+  label: number
+  cx: number
+  cy: number
+  area_um2: number | null
+  circularity: number
+  polygon: [number, number][]
+}
+
+export interface DetectionsResponse {
+  image_id: number
+  pixel_um: number | null
+  width: number
+  height: number
+  detections: Detection[]
+}
+
+export interface ReviewProgress {
+  total: number
+  unreviewed: number
+  approved: number
+  needs_fix: number
+}
+
+export interface ProjectSettings {
+  model_name?: string
+  sensitivity?: number
+  min_um2?: number | null
+  max_um2?: number | null
+  min_circ?: number | null
+}
+
+export interface ProjectStatus {
+  total: number
+  done: number
+  processing: number
+  queued: number
+  error: number
+}
+
+// ---- project endpoints ----
+export const listProjects = () => api.get<Project[]>('/projects').then(r => r.data)
+export const createProject = (body: { name: string; source_folder: string }) =>
+  api.post<Project>('/projects', body).then(r => r.data)
+export const getProject = (id: number) => api.get<Project>(`/projects/${id}`).then(r => r.data)
+export const deleteProject = (id: number) => api.delete(`/projects/${id}`)
+export const importFolder = (id: number) =>
+  api.post(`/projects/${id}/import`).then(r => r.data)
+export const getProjectStatus = (id: number) =>
+  api.get<ProjectStatus>(`/projects/${id}/status`).then(r => r.data)
+export const updateSettings = (id: number, settings: ProjectSettings) =>
+  api.put(`/projects/${id}/settings`, settings).then(r => r.data)
+
+// ---- image endpoints ----
+export const listImages = (projectId: number) =>
+  api.get<ImageRow[]>(`/projects/${projectId}/images`).then(r => r.data)
+export const getDetections = (imageId: number) =>
+  api.get<DetectionsResponse>(`/images/${imageId}/detections`).then(r => r.data)
+export const setReview = (imageId: number, review_status: string) =>
+  api.put(`/images/${imageId}/review`, { review_status }).then(r => r.data)
+export const getReviewProgress = (projectId: number) =>
+  api.get<ReviewProgress>(`/projects/${projectId}/review-progress`).then(r => r.data)
+
+export const renderUrl = (imageId: number, channel?: number) =>
+  channel !== undefined ? `/api/images/${imageId}/render?channel=${channel}` : `/api/images/${imageId}/render`
+export const thumbnailUrl = (imageId: number) => `/api/images/${imageId}/thumbnail`
+export const exportUrl = (projectId: number, perCell = false) =>
+  `/api/projects/${projectId}/export.xlsx${perCell ? '?include_per_cell=true' : ''}`
