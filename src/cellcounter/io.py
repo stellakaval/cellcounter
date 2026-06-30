@@ -87,7 +87,7 @@ def _load_czi(path: Path) -> ImageData:
         arr = np.moveaxis(arr, ci, 0)
         n_ch = arr.shape[0]
         channel_axis: int | None = 0
-        channel_names = _czi_channel_names(meta, n_ch)
+        channel_names = _channel_names(path, meta, n_ch)
     else:
         channel_axis = None
         channel_names = None
@@ -106,17 +106,41 @@ def _czi_pixel_um(meta: str) -> float | None:
     return float(m.group(1)) * 1e6 if m else None
 
 
-def _czi_channel_names(meta: str, n_ch: int) -> list[str]:
-    """Best-effort channel names from metadata; fall back to Ch0..ChN (Ch0 = DAPI)."""
-    names = re.findall(r"<Channel[^>]*Name=\"([^\"]+)\"", meta)
-    # De-dupe preserving order; metadata can list per-track duplicates.
-    seen: list[str] = []
-    for n in names:
-        if n not in seen:
-            seen.append(n)
-    if len(seen) >= n_ch:
-        return seen[:n_ch]
-    return [f"Ch{i}" if i else "DAPI" for i in range(n_ch)]
+# Human-friendly stain names we recognise, with the regex that spots them in a filename.
+_STAIN_PATTERNS = [
+    ("DAPI", r"dapi"),
+    ("PDGFRa", r"pdgfra"),
+    ("EdU", r"edu"),
+    ("GFP", r"gfp"),
+]
+
+
+def _channel_names(path: Path, meta: str, n_ch: int) -> list[str]:
+    """Plain-English channel names (e.g. DAPI / PDGFRa / EdU).
+
+    Prefer parsing the filename, which lists the stains in channel order
+    (``..._DAPI_488PDGFRa_Edu594`` → DAPI, PDGFRa, EdU). Fall back to CZI metadata
+    channel names, then to ``DAPI`` / ``Ch1..`` (channel 0 is always the DAPI nuclei).
+    """
+    stem = path.stem.lower()
+    found = sorted(
+        (m.start(), label)
+        for label, pat in _STAIN_PATTERNS
+        for m in [re.search(pat, stem)]
+        if m
+    )
+    names = [label for _, label in found]
+    if len(names) == n_ch:
+        return names
+
+    # Fall back to metadata channel names.
+    meta_names: list[str] = []
+    for nm in re.findall(r"<Channel[^>]*Name=\"([^\"]+)\"", meta):
+        if nm not in meta_names:
+            meta_names.append(nm)
+    if len(meta_names) >= n_ch:
+        return meta_names[:n_ch]
+    return ["DAPI" if i == 0 else f"Ch{i}" for i in range(n_ch)]
 
 
 def _load_tiff(path: Path) -> ImageData:
@@ -182,29 +206,53 @@ def napari_get_reader(path):
     return _czi_reader
 
 
-def _czi_reader(path):
-    """napari reader: add the DAPI plane as one Image layer; stash full stack in metadata.
+# Colour each named channel so DAPI vs EdU vs PDGFRa are obvious at a glance.
+_CHANNEL_COLORMAP = {"DAPI": "bop blue", "EdU": "red", "PDGFRa": "green", "GFP": "green"}
 
-    Returns one ``(data, add_kwargs, 'image')`` tuple. The full multi-channel array, channel
-    names, and pixel size ride along in ``metadata`` so the widget can switch channels and run
-    colocalization without re-reading the file.
+
+def _czi_reader(path):
+    """napari reader: one named, coloured Image layer per channel.
+
+    The DAPI (nuclei) layer is the "primary" one — it carries the full stack, channel names,
+    and pixel size in ``metadata`` (so the widget can run colocalization without re-reading)
+    and is the layer that triggers the auto-count. Marker layers (EdU, PDGFRa) are added so
+    the user can toggle them on to see them, but are flagged to skip the auto-count and are
+    hidden by default.
     """
     p = Path(path[0] if isinstance(path, list) else path)
     img = load_image(p)
-    nuclei = img.nuclei()
-    meta = {
-        "cellcounter": True,
-        "source": str(p),
-        "pixel_um": img.pixel_um,
-        "channels": img.array,
-        "channel_names": img.channel_names,
-    }
-    add_kwargs = {
-        "name": (img.channel_names[DAPI_CHANNEL] if img.channel_names else p.stem),
-        "metadata": meta,
-        "contrast_limits": _percentile_limits(nuclei),
-    }
-    return [(nuclei, add_kwargs, "image")]
+    n = img.n_channels
+    names = img.channel_names or (["DAPI"] if n == 1 else [f"Ch{i}" for i in range(n)])
+
+    layers = []
+    for i in range(n):
+        plane = img.channel(i)
+        name = names[i] if i < len(names) else f"Ch{i}"
+        if i == DAPI_CHANNEL:
+            meta = {
+                "cellcounter": True,
+                "source": str(p),
+                "pixel_um": img.pixel_um,
+                "channels": img.array if n > 1 else None,
+                "channel_names": names,
+            }
+        else:
+            meta = {"cellcounter": True, "cellcounter_skip": True}
+        layers.append(
+            (
+                plane,
+                {
+                    "name": name,
+                    "colormap": _CHANNEL_COLORMAP.get(name, "gray"),
+                    "blending": "additive",
+                    "visible": i == DAPI_CHANNEL,  # show DAPI; markers off until toggled
+                    "contrast_limits": _percentile_limits(plane),
+                    "metadata": meta,
+                },
+                "image",
+            )
+        )
+    return layers
 
 
 def _percentile_limits(img: np.ndarray, low: float = 1.0, high: float = 99.5):

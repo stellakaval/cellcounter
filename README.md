@@ -61,6 +61,11 @@ project's terminal you can also type `! cellcounter` to launch it directly.)
 Then **drag a `.czi` (or TIFF) onto the window** — the DAPI channel is segmented automatically
 and a big cell count appears, with an editable `nuclei` overlay. From there:
 
+- **Channels are split into named, colored layers** — `DAPI` (blue), `EdU` (red), `PDGFRa`
+  (green) — in the layer list (top-left). DAPI shows by default; click a marker's eye icon to
+  see it. So you always know which channel is which.
+- **See the original photo**: click **"Show original (hide outlines)"**, or **hold the `H` key**
+  to peek at the raw image while held (outlines reappear when you release).
 - **Adjust display contrast** to actually see dim DAPI (view only; doesn't change the count).
 - **Min/max area (µm²)** and **circularity** sliders filter the count live and
   non-destructively — this is the "Analyze Particles" step, made interactive.

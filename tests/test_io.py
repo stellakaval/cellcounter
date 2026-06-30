@@ -41,3 +41,15 @@ def test_load_multichannel_tiff_is_channels_first(tmp_path):
 def test_percentile_limits_handles_flat_image():
     lo, hi = io._percentile_limits(np.zeros((8, 8), np.float32))
     assert hi > lo  # guarded against degenerate range
+
+
+def test_channel_names_from_filename():
+    from pathlib import Path
+
+    # Stains are parsed from the filename in channel order; ch0 is always DAPI.
+    assert io._channel_names(Path("E3_LDHi_1_1_DAPI__Edu594.czi"), "", 2) == ["DAPI", "EdU"]
+    assert io._channel_names(
+        Path("APOE_DAPI_488PDGFRa_Edu594.czi"), "", 3
+    ) == ["DAPI", "PDGFRa", "EdU"]
+    # Falls back to DAPI/Ch1.. when the filename doesn't name the stains.
+    assert io._channel_names(Path("mystery.czi"), "", 2) == ["DAPI", "Ch1"]

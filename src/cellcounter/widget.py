@@ -48,6 +48,7 @@ class CounterWidget:
         self.w_circ = FloatSlider(label="Min circularity", min=0.0, max=1.0, value=0.0)
         self.w_sensitivity = FloatSlider(label="Sensitivity", min=0.0, max=1.0, value=0.5)
         self.w_recount = PushButton(text="Recount (after edits)")
+        self.w_peek = PushButton(text="Show original (hide outlines)")
         self.w_export = PushButton(text="Export CSV")
         self.w_count = Label(label="Cells", value="—")
         self.w_status = Label(label="", value="Drop an image to begin.")
@@ -78,6 +79,7 @@ class CounterWidget:
                 self.w_circ,
                 self.w_sensitivity,
                 self.w_recount,
+                self.w_peek,
                 self.w_export,
                 self.w_edu_channel,
                 self.w_pdgfra_channel,
@@ -97,6 +99,7 @@ class CounterWidget:
         self.w_sensitivity.changed.connect(self._resegment)
         self.w_channel.changed.connect(self._on_channel_change)
         self.w_recount.clicked.connect(self._recount_from_labels)
+        self.w_peek.clicked.connect(self._toggle_overlay)
         self.w_export.clicked.connect(self._export)
         self.w_coloc.clicked.connect(self._run_coloc)
         self.w_batch.clicked.connect(self._run_batch)
@@ -105,6 +108,15 @@ class CounterWidget:
 
         # Auto-count whenever an Image layer is added (drag-drop or File→Open).
         viewer.layers.events.inserted.connect(self._on_layer_inserted)
+
+        # Hold 'h' to peek at the original photo (hide the AI outlines while held).
+        @viewer.bind_key("h", overwrite=True)
+        def _peek_key(_v):
+            if self._labels_layer is not None:
+                self._labels_layer.visible = False
+            yield  # released
+            if self._labels_layer is not None:
+                self._labels_layer.visible = True
 
     # --- segmentation flow --------------------------------------------------------------
 
@@ -116,6 +128,8 @@ class CounterWidget:
             return  # ignore our own Labels layer (prevents an infinite loop)
         if layer.metadata.get("cellcounter_result"):
             return
+        if layer.metadata.get("cellcounter_skip"):
+            return  # marker channel (EdU/PDGFRa) — shown for viewing, not counted
         self._image_layer = layer
         # Populate pixel size + channel choices from the reader's metadata.
         pixel_um = layer.metadata.get("pixel_um")
@@ -125,12 +139,16 @@ class CounterWidget:
         if names:
             self.w_channel.choices = [(n, i) for i, n in enumerate(names)]
             self.w_channel.value = 0
-            # Marker-role dropdowns: include a "none" option; guess sensible defaults.
+            # Marker-role dropdowns: include a "none" option; default by matching the
+            # channel name, falling back to the usual position (EdU last, PDGFRa middle).
             roles = [("none", -1)] + [(n, i) for i, n in enumerate(names)]
             self.w_edu_channel.choices = roles
             self.w_pdgfra_channel.choices = roles
-            self.w_edu_channel.value = len(names) - 1  # EdU is typically the last channel
-            self.w_pdgfra_channel.value = 1 if len(names) >= 3 else -1
+            lower = [n.lower() for n in names]
+            edu = next((i for i, n in enumerate(lower) if "edu" in n), len(names) - 1)
+            pdgfra = next((i for i, n in enumerate(lower) if "pdgfra" in n), -1)
+            self.w_edu_channel.value = edu
+            self.w_pdgfra_channel.value = pdgfra
         self._resegment()
 
     def _current_channel_image(self) -> np.ndarray | None:
@@ -208,6 +226,14 @@ class CounterWidget:
     def _on_channel_change(self, *_):
         if self._image_layer is not None and not self._busy:
             self._resegment()
+
+    def _toggle_overlay(self, *_):
+        """Show/hide the AI outline layer so the raw photo is visible underneath."""
+        if self._labels_layer is None:
+            return
+        visible = not self._labels_layer.visible
+        self._labels_layer.visible = visible
+        self.w_peek.text = "Show outlines" if not visible else "Show original (hide outlines)"
 
     def _run_coloc(self, *_):
         """Compute % EdU+ (and % EdU+ within PDGFRa+) from current nuclei + marker channels."""
