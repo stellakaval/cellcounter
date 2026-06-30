@@ -41,6 +41,28 @@ def test_batch_folder_one_row_per_image(tmp_path):
     assert (df["n_nuclei"] >= 0).all()
 
 
+def test_batch_default_min_size_is_30um2():
+    # The opinionated noise-filter default lives at the application layer (validated value).
+    import inspect
+
+    assert inspect.signature(batch.process_image).parameters["min_um2"].default == 30.0
+
+
+def test_min_size_filters_small_objects():
+    # A 30 µm² floor (at 1 µm/px) keeps a big blob and drops a tiny speck.
+    from skimage.measure import label
+
+    from cellcounter import measure
+
+    mask = np.zeros((64, 64), np.int32)
+    yy, xx = np.mgrid[0:64, 0:64]
+    mask[(yy - 20) ** 2 + (xx - 20) ** 2 <= 6**2] = 1  # ~113 µm²  (kept)
+    mask[(yy - 50) ** 2 + (xx - 50) ** 2 <= 1**2] = 1  # tiny speck (dropped)
+    labels = label(mask)
+    assert measure.count(labels, pixel_um=1.0, min_um2=0) == 2
+    assert measure.count(labels, pixel_um=1.0, min_um2=30) == 1
+
+
 def test_session_roundtrip(tmp_path):
     labels = np.zeros((32, 32), np.int32)
     labels[2:8, 2:8] = 1

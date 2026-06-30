@@ -100,6 +100,16 @@ adjustable threshold).
   Cellpose hardcodes the huggingface.co URL, so `HF_ENDPOINT` won't redirect it — fetch the
   weights from the official source on an unfiltered network if moving to another machine.
 
+## 6b. Counting accuracy (validated vs ground truth)
+
+Validated against the lab's hand counts in `Book.xlsx` (Sheet1: filename, correct count,
+EdU+, %EdU+) on all 100 images. The raw AI (no size filter) **over-counted 26%** (1620 vs
+1284) — driven by **small spurious detections (noise/debris)**, not probability-level
+oversplitting (lowering sensitivity barely changed counts; a size filter did). A **default
+minimum cell size of 30 µm²** (~6 µm nucleus) brings the AI total to within ~1% (ratio 1.01),
+mean abs error 1.3 cells, **85% of images within ±2** (94% within ±3). The size slider +
+hand-correction cover the rest. Regression check: `scripts/validate_counts.py`.
+
 ## 6. Real data format (Phase 0)
 
 Zeiss `.czi` (`czifile`), axes `HTCZYX0`, uint8. **Channel 0 = DAPI** (nuclei to count); other

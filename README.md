@@ -68,7 +68,9 @@ and a big cell count appears, with an editable `nuclei` overlay. From there:
   to peek at the raw image while held (outlines reappear when you release).
 - **Adjust display contrast** to actually see dim DAPI (view only; doesn't change the count).
 - **Min/max area (µm²)** and **circularity** sliders filter the count live and
-  non-destructively — this is the "Analyze Particles" step, made interactive.
+  non-destructively — this is the "Analyze Particles" step, made interactive. **Min area
+  defaults to 30 µm²** to drop small noise/debris (see Accuracy below); lower it to 0 to see
+  every raw detection.
 - **Fix the AI** with napari's brush/erase on the `nuclei` layer, then click **Recount**.
 - **Sensitivity** trades more vs. fewer detections (one knob instead of Fiji's threshold dialogs).
 - **Export CSV** writes a per-cell table (areas in µm²) plus a one-row summary.
@@ -80,6 +82,20 @@ and a big cell count appears, with an editable `nuclei` overlay. From there:
 
 No Fiji concepts (blur, threshold, watershed) — the AI replaces all of that. See
 [`docs/research_notes.md`](docs/research_notes.md) for the design rationale.
+
+## Accuracy
+
+Counts are validated against hand-verified ground truth (`Book.xlsx`, Sheet1) across all 100
+real images. Without a size filter the AI over-counted by 26% (small noise/debris). With the
+**default 30 µm² minimum** the AI total is within **~1%** of the correct total and **85% of
+images are within ±2 cells** (94% within ±3). Re-check anytime with:
+
+```bash
+python scripts/validate_counts.py --folder ~/Desktop/cellsamples --truth ~/Desktop/Book.xlsx --min-um2 30
+```
+
+The remaining per-image differences are handled by adjusting the size slider and the
+brush/erase hand-correction.
 
 ## Phase 0 — model validation
 

@@ -27,7 +27,7 @@ def process_image(
     model_name: str = segment.STARDIST,
     sensitivity: float = 0.5,
     pixel_um: float | None = None,
-    min_um2: float = 0.0,
+    min_um2: float = 30.0,  # ~6 µm nucleus; filters small noise (validated vs ground truth)
     max_um2: float | None = None,
     min_circ: float = 0.0,
     edu_channel: int | None = None,
