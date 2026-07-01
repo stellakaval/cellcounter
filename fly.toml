@@ -4,6 +4,10 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
+  [build.args]
+    VITE_SUPABASE_URL = "https://yionugizdkjouydodeno.supabase.co"
+    VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlpb251Z2l6ZGtqb3V5ZG9kZW5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4OTEzNjksImV4cCI6MjA5ODQ2NzM2OX0.a3RaSRX9ssqpD1GYXCp2_Rmv9K3d4Vw8NVVYa8F74aw"
+
 [env]
   PORT = "8000"
   ALLOWED_ORIGINS = "https://cellcounter-api.fly.dev"

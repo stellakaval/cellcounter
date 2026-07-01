@@ -81,9 +81,11 @@ if _FRONTEND_DIST.is_dir():
 
     @app.get("/{full_path:path}")
     async def spa_fallback(full_path: str):
-        # Serve real files (favicon.ico, manifest.json, etc.) if they exist
         candidate = _FRONTEND_DIST / full_path
         if candidate.is_file():
             return FileResponse(str(candidate))
-        # Everything else → index.html (React Router handles client-side routing)
-        return FileResponse(str(_FRONTEND_DIST / "index.html"))
+        # Always return fresh index.html so browsers load the new asset hashes after a deploy
+        return FileResponse(
+            str(_FRONTEND_DIST / "index.html"),
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
+        )
