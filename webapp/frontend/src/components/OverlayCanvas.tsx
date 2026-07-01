@@ -72,11 +72,13 @@ export default function OverlayCanvas({
       }
 
       const isEduPos = ok && inEduMode && eduThreshold != null && d.edu_mean != null && d.edu_mean > eduThreshold
+      // On EdU tab: only orange for EdU+, skip non-EdU cells entirely
+      if (inEduMode && ok && !isEduPos) continue
       const color = !ok
         ? 'rgba(156,163,175,0.35)'
         : isEduPos
-          ? 'rgba(251,146,60,0.95)'   // orange for EdU+
-          : 'rgba(56,231,186,0.95)'   // teal for all on DAPI tab, DAPI-only on EdU tab
+          ? 'rgba(251,146,60,0.95)'
+          : 'rgba(56,231,186,0.95)'
       ctx.strokeStyle = color
       ctx.lineWidth = ok ? 2.5 : 1.5
       ctx.setLineDash([])
