@@ -123,22 +123,21 @@ export default function OverlayCanvas({
           ctx.closePath()
           ctx.stroke()
         } else {
+          const fr = (addedRadius ?? 10) * scale
           ctx.beginPath()
-          ctx.arc(cx, d.cy * scale, 5 * scale, 0, Math.PI * 2)
-          ctx.fillStyle = '#ff8c0088'
-          ctx.fill()
+          ctx.arc(d.cx * scale, d.cy * scale, fr, 0, Math.PI * 2)
           ctx.stroke()
         }
         ctx.shadowBlur = 0
         continue
       }
 
-      // DAPI tab: draw all passing cells in teal
-      const color = '#00ffbb'
+      // DAPI tab: yellow — high contrast on both dark and bright DAPI backgrounds
+      const color = '#facc15'
       ctx.strokeStyle = color
-      ctx.lineWidth = 2.5
+      ctx.lineWidth = 1.5
       ctx.setLineDash([])
-      ctx.shadowBlur = 4
+      ctx.shadowBlur = 6
       ctx.shadowColor = color
       if (d.polygon.length > 1) {
         ctx.beginPath()
@@ -147,10 +146,10 @@ export default function OverlayCanvas({
         ctx.closePath()
         ctx.stroke()
       } else {
+        // Fallback circle sized to the median nucleus, not a hardcoded tiny radius
+        const fr = (addedRadius ?? 10) * scale
         ctx.beginPath()
-        ctx.arc(d.cx * scale, d.cy * scale, 5 * scale, 0, Math.PI * 2)
-        ctx.fillStyle = color + '88'
-        ctx.fill()
+        ctx.arc(d.cx * scale, d.cy * scale, fr, 0, Math.PI * 2)
         ctx.stroke()
       }
       ctx.shadowBlur = 0
@@ -171,8 +170,8 @@ export default function OverlayCanvas({
       }
       ctx.shadowBlur = 0
     } else {
-      // Draw manually added DAPI cells as green nucleus-style outlines
-      const dapiColor = '#4ade80'
+      // Draw manually added DAPI cells — same yellow as AI outlines
+      const dapiColor = '#facc15'
       ctx.shadowBlur = 4
       ctx.shadowColor = dapiColor
       ctx.strokeStyle = dapiColor
