@@ -73,22 +73,14 @@ export default function ProjectListPage() {
   const [files, setFiles] = useState<FileList | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
-  const [showAdvanced, setShowAdvanced] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Channel config
   const [dapiChannel, setDapiChannel] = useState(0)
   const [eduChannel, setEduChannel] = useState<number | null>(1)
 
-  // Model
+  // Model (only one option currently)
   const [modelName] = useState('StarDist fluo')
-
-  // Filters
-  const [sensitivity, setSensitivity] = useState(0.5)
-  const [minUm2, setMinUm2] = useState(30)
-  const [maxUm2, setMaxUm2] = useState<string>('')
-  const [minCirc, setMinCirc] = useState(0)
-  const [nmsThresh, setNmsThresh] = useState(0.3)
 
   const { data: projects = [], isLoading } = useQuery({
     queryKey: ['projects'],
@@ -100,11 +92,6 @@ export default function ProjectListPage() {
       const proj = await createProject({
         name: name.trim(),
         model_name: modelName,
-        sensitivity,
-        nms_thresh: nmsThresh,
-        min_um2: minUm2,
-        max_um2: maxUm2 ? Number(maxUm2) : null,
-        min_circ: minCirc,
         dapi_channel: dapiChannel,
         edu_channel: eduChannel,
       })
@@ -148,14 +135,8 @@ export default function ProjectListPage() {
     setShowNew(false)
     setName('')
     setFiles(null)
-    setSensitivity(0.5)
-    setMinUm2(30)
-    setMaxUm2('')
-    setMinCirc(0)
-    setNmsThresh(0.3)
     setDapiChannel(0)
     setEduChannel(1)
-    setShowAdvanced(false)
   }
 
   return (
@@ -251,70 +232,6 @@ export default function ProjectListPage() {
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
-
-            {/* Filters */}
-            <div>
-              <label className="block text-xs text-gray-400 mb-2 uppercase tracking-wide">Detection filters</label>
-              <div className="bg-gray-900 rounded-lg p-4 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-400 mb-1 block">Sensitivity <span className="text-gray-500">(more ↔ fewer cells)</span></label>
-                    <div className="flex items-center gap-2">
-                      <input type="range" min={0.1} max={0.9} step={0.05}
-                        value={sensitivity}
-                        onChange={e => setSensitivity(Number(e.target.value))}
-                        className="flex-1 accent-indigo-500"
-                      />
-                      <span className="text-xs text-gray-300 w-8 text-right">{sensitivity.toFixed(2)}</span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400 mb-1 block">Min nucleus area (µm²)</label>
-                    <input type="number" min={0} step={5}
-                      value={minUm2}
-                      onChange={e => setMinUm2(Number(e.target.value))}
-                      className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setShowAdvanced(v => !v)}
-                  className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-                >
-                  {showAdvanced ? '▾ Hide advanced' : '▸ Advanced filters'}
-                </button>
-
-                {showAdvanced && (
-                  <div className="grid grid-cols-3 gap-3 pt-1 border-t border-gray-700">
-                    <div>
-                      <label className="text-xs text-gray-400 mb-1 block">Max area (µm²) <span className="text-gray-600">optional</span></label>
-                      <input type="number" min={0} step={10} placeholder="—"
-                        value={maxUm2}
-                        onChange={e => setMaxUm2(e.target.value)}
-                        className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 mb-1 block">Min circularity <span className="text-gray-600">0–1</span></label>
-                      <input type="number" min={0} max={1} step={0.05}
-                        value={minCirc}
-                        onChange={e => setMinCirc(Number(e.target.value))}
-                        className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 mb-1 block">NMS threshold <span className="text-gray-600">overlap tolerance</span></label>
-                      <input type="number" min={0.1} max={0.9} step={0.05}
-                        value={nmsThresh}
-                        onChange={e => setNmsThresh(Number(e.target.value))}
-                        className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm"
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 
