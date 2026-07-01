@@ -118,7 +118,8 @@ export default function ProjectPage() {
                 <thead>
                   <tr className="border-b border-gray-700 text-gray-400 text-xs">
                     <th className="text-left px-4 py-2">File</th>
-                    <th className="text-right px-4 py-2">Nuclei</th>
+                    <th className="text-right px-4 py-2 text-teal-500">DAPI</th>
+                    <th className="text-right px-4 py-2 text-orange-500">EdU+</th>
                     <th className="text-center px-4 py-2">Status</th>
                     <th className="text-center px-4 py-2">Review</th>
                   </tr>
@@ -132,12 +133,20 @@ export default function ProjectPage() {
                     >
                       <td className="px-4 py-2.5 font-mono text-xs text-gray-300 truncate max-w-xs">
                         {img.filename}
+                        {img.scene_name && (
+                          <span className="ml-1.5 px-1.5 py-0.5 bg-indigo-900/50 text-indigo-300 rounded text-[10px] font-sans font-medium">
+                            {img.scene_name}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">
                         {img.filtered_count ?? '—'}
                         {img.raw_count !== null && img.raw_count !== img.filtered_count && (
                           <span className="text-gray-500 text-xs ml-1">({img.raw_count})</span>
                         )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-orange-300">
+                        {img.edu_count ?? '—'}
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         <StatusBadge status={img.status} />

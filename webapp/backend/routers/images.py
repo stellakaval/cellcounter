@@ -35,19 +35,33 @@ def list_images(
     images = session.exec(
         select(Image).where(Image.project_id == project_id).order_by(Image.id)
     ).all()
-    return [
-        ImageRow(
-            id=i.id,
-            filename=i.filename,
-            status=i.status,
-            raw_count=i.raw_count,
-            filtered_count=i.filtered_count,
-            review_status=i.review_status,
-            width=i.width,
-            height=i.height,
+    rows = []
+    for i in images:
+        ch_names = None
+        if i.channel_names:
+            try:
+                ch_names = json.loads(i.channel_names)
+            except Exception:
+                pass
+        rows.append(
+            ImageRow(
+                id=i.id,
+                filename=i.filename,
+                status=i.status,
+                raw_count=i.raw_count,
+                filtered_count=i.filtered_count,
+                edu_count=i.edu_count,
+                review_status=i.review_status,
+                width=i.width,
+                height=i.height,
+                scene_index=i.scene_index,
+                scene_name=i.scene_name,
+                n_channels=i.n_channels,
+                channel_names=ch_names,
+                dapi_channel=i.dapi_channel,
+            )
         )
-        for i in images
-    ]
+    return rows
 
 
 @router.get("/images/{image_id}")
@@ -80,7 +94,7 @@ def render_image(
     # Lazily render a non-DAPI channel and cache it.
     cache = paths["render_dapi"].with_name(f"render_ch{ch}.png")
     if not cache.exists():
-        data = io.load_image(image.source_path)
+        data = io.load_image(image.source_path, scene_index=image.scene_index)
         if ch >= data.n_channels:
             raise HTTPException(400, f"channel {ch} out of range")
         rendering.render_png(data.channel(ch), cache)
@@ -111,11 +125,54 @@ def detections(
     props = pd.read_csv(paths["detections"])
     polys = json.loads(paths["contours"].read_text()) if paths["contours"].exists() else {}
 
+    # Lazy EdU measurement for images processed before this feature was added
+    edu_threshold: float | None = None
+    if paths["meta"].exists():
+        meta = json.loads(paths["meta"].read_text())
+        edu_threshold = meta.get("edu_threshold")
+
+        if "edu_mean" not in props.columns and meta.get("markers") and paths["labels"].exists():
+            markers = meta.get("markers", {})
+            edu_ch = markers.get("EdU")
+            if edu_ch is not None:
+                import numpy as np
+                import tifffile
+                from cellcounter import compare
+                labels = tifffile.imread(paths["labels"])
+                data = io.load_image(image.source_path, scene_index=image.scene_index)
+                edu_channel = data.channel(int(edu_ch))
+                edu_means = compare.marker_intensity(labels, edu_channel)
+                props = props.merge(
+                    edu_means.rename(columns={"intensity_mean": "edu_mean"}),
+                    on="label", how="left",
+                )
+                props.to_csv(paths["detections"], index=False)
+                edu_vals = edu_means["intensity_mean"].to_numpy()
+                if len(edu_vals) > 1:
+                    background_mask = labels == 0
+                    background_edu = float(edu_channel[background_mask].mean()) if background_mask.any() else 0.0
+                    edu_corrected = np.maximum(0, edu_vals - background_edu)
+                    if edu_corrected.max() > 0:
+                        edu_threshold = float(np.percentile(edu_corrected, 75)) + background_edu
+                        edu_count = int((edu_corrected > (edu_threshold - background_edu)).sum())
+                    else:
+                        edu_threshold = float(np.percentile(edu_vals, 80))
+                        edu_count = int(compare.positive_mask(edu_vals, edu_threshold).sum())
+                    meta["edu_threshold"] = edu_threshold
+                    meta["edu_count"] = edu_count
+                    paths["meta"].write_text(json.dumps(meta, default=str))
+                    image.edu_count = edu_count
+                    session.add(image)
+                    session.commit()
+
     out: list[Detection] = []
     for r in props.itertuples():
         area = getattr(r, "area_um2", None)
         if area is not None and pd.isna(area):
             area = None
+        edu_mean_val = getattr(r, "edu_mean", None)
+        if edu_mean_val is not None and pd.isna(float(edu_mean_val)):
+            edu_mean_val = None
         out.append(
             Detection(
                 label=int(r.label),
@@ -124,6 +181,7 @@ def detections(
                 area_um2=None if area is None else round(float(area), 2),
                 circularity=round(float(r.circularity), 3),
                 polygon=polys.get(str(int(r.label)), []),
+                edu_mean=None if edu_mean_val is None else round(float(edu_mean_val), 2),
             )
         )
     return DetectionsResponse(
@@ -132,6 +190,7 @@ def detections(
         width=image.width,
         height=image.height,
         detections=out,
+        edu_threshold=edu_threshold,
     )
 
 

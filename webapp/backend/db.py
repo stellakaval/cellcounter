@@ -27,7 +27,25 @@ def get_engine():
             poolclass=StaticPool,
         )
         SQLModel.metadata.create_all(_engine)
+        _migrate(_engine)
     return _engine
+
+
+def _migrate(engine) -> None:
+    """Add columns that may be missing in existing DBs (forward-only, additive)."""
+    from sqlalchemy import text
+    new_cols = [
+        ("image", "scene_index", "INTEGER NOT NULL DEFAULT 0"),
+        ("image", "scene_name",  "TEXT"),
+        ("image", "edu_count",   "INTEGER"),
+    ]
+    with engine.connect() as conn:
+        for table, col, definition in new_cols:
+            rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            existing = {r[1] for r in rows}
+            if col not in existing:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {definition}"))
+        conn.commit()
 
 
 def reset_engine() -> None:

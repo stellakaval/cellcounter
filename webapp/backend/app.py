@@ -20,7 +20,24 @@ _FRONTEND_DIST = Path(__file__).parent.parent.parent / "frontend" / "dist"
 async def lifespan(app: FastAPI):
     get_engine()  # create the DB + tables
     worker.start_worker()
+    _resume_queued()  # re-enqueue any jobs that were pending when the server last stopped
     yield
+
+
+def _resume_queued() -> None:
+    """On startup, reset 'processing' → 'queued' (they were interrupted) and enqueue all queued images."""
+    from sqlmodel import Session, select
+    from .models import Image
+    with Session(get_engine()) as session:
+        stuck = session.exec(select(Image).where(Image.status == "processing")).all()
+        for img in stuck:
+            img.status = "queued"
+            session.add(img)
+        if stuck:
+            session.commit()
+        pending = session.exec(select(Image.id).where(Image.status == "queued")).all()
+    for image_id in pending:
+        worker.enqueue(image_id)
 
 
 app = FastAPI(title="cellcounter web", lifespan=lifespan)

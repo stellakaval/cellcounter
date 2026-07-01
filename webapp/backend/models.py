@@ -50,11 +50,15 @@ class Image(SQLModel, table=True):
     channel_names: str | None = None  # JSON-encoded list
     dapi_channel: int = 0
 
+    scene_index: int = 0           # which CZI scene (0 for non-multi-scene)
+    scene_name: str | None = None  # optional label from CZI metadata
+
     status: str = "queued"  # queued | processing | done | error
     error: str | None = None
 
     raw_count: int | None = None        # nuclei detected before filters
     filtered_count: int | None = None   # after project-wide filters (cache)
+    edu_count: int | None = None        # EdU+ nuclei (auto-threshold, optional)
 
     review_status: str = "unreviewed"   # unreviewed | approved | needs_fix
     is_calibration: bool = False

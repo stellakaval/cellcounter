@@ -8,7 +8,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlmodel import Session, func, select
 
-from .. import config
+from .. import config, worker
 from ..db import get_session
 from ..models import Image, Project
 from ..schemas import ImportRequest, ProjectCreate, ProjectSummary, StatusResponse
@@ -121,6 +121,23 @@ async def upload_files(
 
     new_ids = ingest.import_folder(session, project_id, upload_dir)
     return {"added": len(new_ids), "image_ids": new_ids}
+
+
+@router.post("/{project_id}/rerun")
+def rerun_project(project_id: int, session: Session = Depends(get_session)) -> dict:
+    """Re-queue all images in a project for re-segmentation (model/sensitivity changed)."""
+    images = session.exec(select(Image).where(Image.project_id == project_id)).all()
+    for img in images:
+        img.status = "queued"
+        img.raw_count = None
+        img.filtered_count = None
+        img.edu_count = None
+        img.error = None
+        session.add(img)
+    session.commit()
+    for img in images:
+        worker.enqueue(img.id)
+    return {"requeued": len(images)}
 
 
 @router.get("/{project_id}/status")

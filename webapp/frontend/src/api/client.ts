@@ -21,9 +21,15 @@ export interface ImageRow {
   status: 'queued' | 'processing' | 'done' | 'error'
   raw_count: number | null
   filtered_count: number | null
+  edu_count: number | null
   review_status: 'unreviewed' | 'approved' | 'needs_fix'
   width: number | null
   height: number | null
+  scene_index: number
+  scene_name: string | null
+  n_channels: number | null
+  channel_names: string[] | null
+  dapi_channel: number
 }
 
 export interface Detection {
@@ -33,6 +39,7 @@ export interface Detection {
   area_um2: number | null
   circularity: number
   polygon: [number, number][]
+  edu_mean: number | null
 }
 
 export interface DetectionsResponse {
@@ -41,6 +48,7 @@ export interface DetectionsResponse {
   width: number
   height: number
   detections: Detection[]
+  edu_threshold: number | null
 }
 
 export interface ReviewProgress {
@@ -74,6 +82,8 @@ export const getProject = (id: number) => api.get<Project>(`/projects/${id}`).th
 export const deleteProject = (id: number) => api.delete(`/projects/${id}`)
 export const importFolder = (id: number) =>
   api.post(`/projects/${id}/import`).then(r => r.data)
+export const rerunProject = (id: number) =>
+  api.post(`/projects/${id}/rerun`).then(r => r.data)
 
 export const uploadFiles = (id: number, files: FileList | File[]) => {
   const form = new FormData()

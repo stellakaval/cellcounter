@@ -33,9 +33,15 @@ class ImageRow(BaseModel):
     status: str
     raw_count: int | None
     filtered_count: int | None
+    edu_count: int | None = None
     review_status: str
     width: int | None
     height: int | None
+    scene_index: int = 0
+    scene_name: str | None = None
+    n_channels: int | None = None
+    channel_names: list[str] | None = None
+    dapi_channel: int = 0
 
 
 class Detection(BaseModel):
@@ -45,6 +51,7 @@ class Detection(BaseModel):
     area_um2: float | None
     circularity: float
     polygon: list[list[int]]
+    edu_mean: float | None = None
 
 
 class DetectionsResponse(BaseModel):
@@ -53,6 +60,7 @@ class DetectionsResponse(BaseModel):
     width: int | None
     height: int | None
     detections: list[Detection]
+    edu_threshold: float | None = None   # Otsu threshold for EdU+ classification
 
 
 class StatusResponse(BaseModel):

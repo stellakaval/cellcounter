@@ -11,6 +11,7 @@ interface Props {
   maxUm2?: number | null
   minCirc?: number | null
   scale: number
+  eduThreshold?: number | null
 }
 
 function passes(d: Detection, minUm2?: number | null, maxUm2?: number | null, minCirc?: number | null) {
@@ -22,7 +23,7 @@ function passes(d: Detection, minUm2?: number | null, maxUm2?: number | null, mi
 
 export default function OverlayCanvas({
   detections, corrections, width, height, showOverlay,
-  minUm2, maxUm2, minCirc, scale,
+  minUm2, maxUm2, minCirc, scale, eduThreshold,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -34,8 +35,9 @@ export default function OverlayCanvas({
     if (!showOverlay) return
 
     const deletedSet = new Set(corrections.deleted)
-    ctx.font = `${Math.max(9, 11 * scale)}px monospace`
-    ctx.textBaseline = 'top'
+    ctx.font = `bold ${Math.max(10, 13 * scale)}px monospace`
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'center'
 
     // Draw AI detections
     for (const d of detections) {
@@ -57,20 +59,25 @@ export default function OverlayCanvas({
         }
         // Draw X at centroid
         const r = 6 * scale
+        const cx = d.cx * scale
+        const cy = d.cy * scale
         ctx.beginPath()
-        ctx.moveTo((d.cx - r) * scale, (d.cy - r) * scale)
-        ctx.lineTo((d.cx + r) * scale, (d.cy + r) * scale)
-        ctx.moveTo((d.cx + r) * scale, (d.cy - r) * scale)
-        ctx.lineTo((d.cx - r) * scale, (d.cy + r) * scale)
+        ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r)
+        ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r)
         ctx.strokeStyle = 'rgba(239,68,68,0.9)'
         ctx.lineWidth = 2
         ctx.stroke()
         continue
       }
 
-      const color = ok ? 'rgba(99,202,183,0.85)' : 'rgba(156,163,175,0.4)'
+      const isEduPos = ok && eduThreshold != null && d.edu_mean != null && d.edu_mean > eduThreshold
+      const color = !ok
+        ? 'rgba(156,163,175,0.35)'
+        : isEduPos
+          ? 'rgba(251,146,60,0.95)'   // orange for EdU+
+          : 'rgba(56,231,186,0.95)'   // teal for DAPI only
       ctx.strokeStyle = color
-      ctx.lineWidth = 1.5
+      ctx.lineWidth = ok ? 2.5 : 1.5
       ctx.setLineDash([])
 
       if (d.polygon.length > 1) {
@@ -87,8 +94,19 @@ export default function OverlayCanvas({
       }
 
       if (ok) {
+        const txt = String(d.label)
+        const tx = d.cx * scale
+        const ty = d.cy * scale
+        const tw = ctx.measureText(txt).width
+        const th = Math.max(10, 13 * scale)
+        const pad = 2 * scale
+        // Dark pill background for legibility
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'
+        ctx.beginPath()
+        ctx.roundRect(tx - tw / 2 - pad, ty - th / 2 - pad, tw + pad * 2, th + pad * 2, 3)
+        ctx.fill()
         ctx.fillStyle = color
-        ctx.fillText(String(d.label), d.cx * scale + 3, d.cy * scale - 10)
+        ctx.fillText(txt, tx, ty)
       }
     }
 
@@ -111,7 +129,7 @@ export default function OverlayCanvas({
       ctx.fill()
       ctx.globalAlpha = 1
     }
-  }, [detections, corrections, showOverlay, minUm2, maxUm2, minCirc, scale])
+  }, [detections, corrections, showOverlay, minUm2, maxUm2, minCirc, scale, eduThreshold])
 
   return (
     <canvas

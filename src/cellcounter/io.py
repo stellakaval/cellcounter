@@ -67,22 +67,35 @@ class ImageData:
         return self.channel(idx)
 
 
-def load_image(path: str | Path) -> ImageData:
+def count_scenes(path: str | Path) -> int:
+    """Number of scenes in a CZI (1 for non-CZI or single-scene files)."""
+    path = Path(path)
+    if path.suffix.lower() != ".czi":
+        return 1
+    import czifile
+    with czifile.CziFile(path) as czi:
+        axes = list(czi.axes)
+        if "S" not in axes:
+            return 1
+        return int(czi.shape[axes.index("S")])
+
+
+def load_image(path: str | Path, scene_index: int = 0) -> ImageData:
     """Load a CZI or TIFF into channels-first ``ImageData``."""
     path = Path(path)
     ext = path.suffix.lower()
     if ext == ".czi":
-        return _load_czi(path)
+        return _load_czi(path, scene_index=scene_index)
     return _load_tiff(path)
 
 
-def _load_czi(path: Path) -> ImageData:
+def _load_czi(path: Path, scene_index: int = 0) -> ImageData:
     """Read a Zeiss CZI: max-project Z, keep channels first, parse pixel size + names."""
     import czifile
 
     with czifile.CziFile(path) as czi:
         arr = np.asarray(czi.asarray())
-        axes = list(czi.axes)  # e.g. "HTCZYX0"
+        axes = list(czi.axes)  # e.g. "STCZYX0"
         meta = czi.metadata()
 
     # Max-project a Z-stack (good for nuclei counting).
@@ -90,11 +103,13 @@ def _load_czi(path: Path) -> ImageData:
         zi = axes.index("Z")
         arr = arr.max(axis=zi)
         axes.pop(zi)
-    # Collapse every non-spatial, non-channel axis by taking index 0 (H, T, sample "0").
+    # Collapse every non-spatial, non-channel axis.
+    # Use scene_index for the S axis; take index 0 for all others (H, T, sample "0").
     for ax in list(axes):
         if ax not in ("Y", "X", "C"):
             i = axes.index(ax)
-            arr = arr[tuple(0 if j == i else slice(None) for j in range(arr.ndim))]
+            idx = scene_index if ax == "S" else 0
+            arr = arr[tuple(idx if j == i else slice(None) for j in range(arr.ndim))]
             axes.pop(i)
 
     # Move channel axis to front if present, else stay 2D.

@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  listImages, getDetections, setReview, getProject, updateSettings, renderUrl,
+  listImages, getDetections, setReview, getProject, renderUrl,
   getCorrections, putCorrections,
-  type ImageRow, type Corrections,
+  type ImageRow, type Corrections, type Detection,
 } from '../api/client'
 import OverlayCanvas from '../components/OverlayCanvas'
 
@@ -56,8 +56,15 @@ export default function ImageReviewPage() {
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [brightness, setBrightness] = useState(1.0)
   const [contrast, setContrast] = useState(1.0)
-  // Local filter overrides (apply instantly; saved on blur/apply)
-  const [localMinUm2, setLocalMinUm2] = useState<number | null>(null)
+  const [activeChannel, setActiveChannel] = useState<number | null>(null) // null = DAPI
+  const [eduThreshold, setEduThreshold] = useState<number | null>(null) // null = use server default
+
+  type HoverTarget =
+    | { kind: 'ai'; det: Detection; deleted: boolean; x: number; y: number }
+    | { kind: 'added'; id: string; x: number; y: number }
+    | { kind: 'empty'; x: number; y: number }
+
+  const [hover, setHover] = useState<HoverTarget | null>(null)
 
   const isPanning = useRef(false)
   const dragDelta = useRef(0)
@@ -71,16 +78,6 @@ export default function ImageReviewPage() {
     queryKey: ['corrections', imageId],
     queryFn: () => getCorrections(imageId),
     enabled: !!imageId,
-  })
-
-  // Sync local min filter from project on load
-  useEffect(() => {
-    if (project && localMinUm2 === null) setLocalMinUm2(project.min_um2 ?? 0)
-  }, [project])
-
-  const settingsMut = useMutation({
-    mutationFn: (min_um2: number) => updateSettings(projectId, { min_um2 }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['project', projectId] }); qc.invalidateQueries({ queryKey: ['images', projectId] }) },
   })
 
   const doneImages = (images as ImageRow[]).filter(i => i.status === 'done')
@@ -99,7 +96,7 @@ export default function ImageReviewPage() {
 
   const goTo = useCallback((idx: number) => {
     if (idx >= 0 && idx < doneImages.length) {
-      setZoom(1); setPan({ x: 0, y: 0 })
+      setZoom(1); setPan({ x: 0, y: 0 }); setActiveChannel(null); setEduThreshold(null)
       nav(`/projects/${projectId}/images/${doneImages[idx].id}`)
     }
   }, [doneImages, projectId, nav])
@@ -134,6 +131,8 @@ export default function ImageReviewPage() {
     const imgY = (clientY - rect.top - rect.height / 2 - pan.y) / zoom / bs + dets.height / 2
     return { imgX, imgY, bs }
   }, [dets, pan, zoom])
+
+  const deletedSet = new Set(corrections.deleted)
 
   // Short click (not a pan drag) → add or remove a cell
   const handleClick = useCallback((clientX: number, clientY: number) => {
@@ -172,6 +171,32 @@ export default function ImageReviewPage() {
     }
   }, [dets, corrections, corrMut, viewportToImage, zoom])
 
+  const updateHover = useCallback((clientX: number, clientY: number) => {
+    if (!dets || dragDelta.current > 5) { setHover(null); return }
+    const coords = viewportToImage(clientX, clientY)
+    if (!coords) { setHover(null); return }
+    const { imgX, imgY, bs } = coords
+    const THRESH = 18 / bs / zoom
+
+    const nearest = dets.detections.reduce<{ d: Detection; dist: number } | null>((best, d) => {
+      const dist = Math.hypot(d.cx - imgX, d.cy - imgY)
+      return dist < THRESH && (!best || dist < best.dist) ? { d, dist } : best
+    }, null)
+
+    const nearestAdded = corrections.added.reduce<{ pt: Corrections['added'][0]; dist: number } | null>((best, pt) => {
+      const dist = Math.hypot(pt.cx - imgX, pt.cy - imgY)
+      return dist < THRESH && (!best || dist < best.dist) ? { pt, dist } : best
+    }, null)
+
+    if (nearestAdded && (!nearest || nearestAdded.dist < nearest.dist)) {
+      setHover({ kind: 'added', id: nearestAdded.pt.id, x: clientX, y: clientY })
+    } else if (nearest) {
+      setHover({ kind: 'ai', det: nearest.d, deleted: deletedSet.has(nearest.d.label), x: clientX, y: clientY })
+    } else {
+      setHover({ kind: 'empty', x: clientX, y: clientY })
+    }
+  }, [dets, corrections, viewportToImage, zoom, deletedSet])
+
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
     setZoom(z => Math.max(0.25, Math.min(8, z * (e.deltaY < 0 ? 1.12 : 1 / 1.12))))
@@ -185,12 +210,13 @@ export default function ImageReviewPage() {
   }, [pan])
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    updateHover(e.clientX, e.clientY)
     if (!isPanning.current) return
     const dx = e.clientX - panStart.current.mx
     const dy = e.clientY - panStart.current.my
     dragDelta.current = Math.max(dragDelta.current, Math.hypot(dx, dy))
     setPan({ x: panStart.current.px + dx, y: panStart.current.py + dy })
-  }, [])
+  }, [updateHover])
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
     if (isPanning.current) handleClick(e.clientX, e.clientY)
@@ -201,17 +227,31 @@ export default function ImageReviewPage() {
     ? Math.min(1, (viewportRef.current?.clientWidth ?? 900) / Math.max(dets.width, dets.height))
     : 1
 
-  const activeMinUm2 = localMinUm2 ?? project?.min_um2 ?? 0
-  const deletedSet = new Set(corrections.deleted)
-  const passing = dets
+  const activeMinUm2 = project?.min_um2 ?? 0
+  const activeEduThreshold = eduThreshold ?? dets?.edu_threshold ?? null
+  const eduChannelIdx = currentImage?.channel_names?.findIndex(n => n.toLowerCase().includes('edu')) ?? -1
+  const inEduMode = eduChannelIdx >= 0 && (activeChannel ?? currentImage?.dapi_channel) === eduChannelIdx
+
+  const passingDets = dets
     ? dets.detections.filter(d => {
         if (deletedSet.has(d.label)) return false
         if (activeMinUm2 > 0 && d.area_um2 !== null && d.area_um2 < activeMinUm2) return false
         if (project?.max_um2 && d.area_um2 !== null && d.area_um2 > project.max_um2) return false
         if (project?.min_circ && d.circularity < project.min_circ) return false
         return true
-      }).length + corrections.added.length
+      })
+    : []
+  const passing = dets ? passingDets.length + corrections.added.length : null
+
+  const hasEdu = dets?.edu_threshold != null
+  const eduCount = hasEdu && activeEduThreshold != null
+    ? passingDets.filter(d => d.edu_mean != null && d.edu_mean > activeEduThreshold).length
     : null
+
+  // EdU slider range from detections
+  const eduMeans = dets?.detections.map(d => d.edu_mean).filter((v): v is number => v != null) ?? []
+  const eduMin = eduMeans.length ? Math.min(...eduMeans) : 0
+  const eduMax = eduMeans.length ? Math.max(...eduMeans) : 1
 
   const reviewStatus = currentImage?.review_status ?? 'unreviewed'
   const hasCorrections = corrections.deleted.length > 0 || corrections.added.length > 0
@@ -227,9 +267,29 @@ export default function ImageReviewPage() {
         <span className="text-sm font-mono text-gray-300 truncate flex-1">{currentImage?.filename}</span>
         <span className="text-xs text-gray-500 shrink-0">{currentIndex + 1} / {doneImages.length}</span>
         <span className="text-xs text-gray-600 shrink-0">{Math.round(zoom * 100)}%</span>
+        {/* Channel selector — only shown for multi-channel images */}
+        {currentImage?.n_channels && currentImage.n_channels > 1 && currentImage.channel_names && (
+          <div className="flex gap-1 shrink-0">
+            {currentImage.channel_names.map((name, idx) => (
+              <button
+                key={idx}
+                onClick={() => setActiveChannel(idx)}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                  (activeChannel ?? currentImage.dapi_channel) === idx
+                    ? 'bg-blue-700 text-white'
+                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
         <button onClick={() => setShowOverlay(v => !v)}
-          className={`px-3 py-1 rounded text-xs shrink-0 ${showOverlay ? 'bg-indigo-700 text-white' : 'bg-gray-700 text-gray-300'}`}>
-          Outlines [O]
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 flex items-center gap-1.5 ${
+            showOverlay ? 'bg-teal-700 text-teal-100 ring-1 ring-teal-500' : 'bg-gray-700 text-gray-400'
+          }`}>
+          <span>{showOverlay ? '◉' : '○'}</span> Outlines <kbd className="opacity-60">[O]</kbd>
         </button>
         <button onClick={() => goTo(currentIndex - 1)} disabled={currentIndex <= 0}
           className="px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-sm">←</button>
@@ -257,12 +317,12 @@ export default function ImageReviewPage() {
         <div
           ref={viewportRef}
           className="flex-1 overflow-hidden bg-gray-950 relative select-none"
-          style={{ cursor: 'crosshair' }}
+          style={{ cursor: hover?.kind === 'ai' || hover?.kind === 'added' ? 'pointer' : 'crosshair' }}
           onWheel={handleWheel}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
-          onMouseLeave={() => { isPanning.current = false }}
+          onMouseLeave={() => { isPanning.current = false; setHover(null) }}
         >
           {dets ? (
             <div style={{
@@ -271,7 +331,8 @@ export default function ImageReviewPage() {
               transformOrigin: 'center',
               width: dets.width * baseScale, height: dets.height * baseScale,
             }}>
-              <img src={renderUrl(imageId)}
+              <img
+                src={renderUrl(imageId, activeChannel ?? currentImage?.dapi_channel)}
                 width={dets.width * baseScale} height={dets.height * baseScale}
                 alt="microscope image" draggable={false}
                 style={{ display: 'block', userSelect: 'none', filter: `brightness(${brightness}) contrast(${contrast})` }}
@@ -282,6 +343,7 @@ export default function ImageReviewPage() {
                 showOverlay={showOverlay}
                 minUm2={activeMinUm2} maxUm2={project?.max_um2} minCirc={project?.min_circ}
                 scale={baseScale}
+                eduThreshold={activeEduThreshold}
               />
             </div>
           ) : (
@@ -293,42 +355,119 @@ export default function ImageReviewPage() {
           </div>
         </div>
 
+        {/* Hover tooltip */}
+        {hover && (
+          <div
+            className="fixed z-50 pointer-events-none"
+            style={{ left: Math.min(hover.x + 14, window.innerWidth - 210), top: hover.y - 10 }}
+          >
+            <div className="bg-gray-900 border border-gray-600 rounded-lg shadow-2xl p-3 text-xs w-48 space-y-1.5">
+              {hover.kind === 'ai' && (
+                <>
+                  <p className="font-semibold text-gray-100">Cell #{hover.det.label}</p>
+                  {hover.det.area_um2 != null && (
+                    <p className="text-gray-400">{hover.det.area_um2} µm² · circ {hover.det.circularity.toFixed(2)}</p>
+                  )}
+                  {activeEduThreshold != null && hover.det.edu_mean != null && (
+                    <p className={hover.det.edu_mean > activeEduThreshold ? 'text-orange-400' : 'text-teal-400'}>
+                      {hover.det.edu_mean > activeEduThreshold ? '● EdU+ (proliferating)' : '● DAPI only'}
+                    </p>
+                  )}
+                  <p className={`mt-1 font-medium ${hover.deleted ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {hover.deleted ? '↩ Click to restore' : '✕ Click to remove'}
+                  </p>
+                </>
+              )}
+              {hover.kind === 'added' && (
+                <>
+                  <p className="font-semibold text-green-300">Manually added</p>
+                  <p className="text-red-400 font-medium mt-1">✕ Click to remove</p>
+                </>
+              )}
+              {hover.kind === 'empty' && (
+                <p className="text-gray-400">+ Click to add a nucleus here</p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Sidebar */}
         <div className="w-60 shrink-0 bg-gray-900 border-l border-gray-800 p-4 flex flex-col gap-5 overflow-y-auto">
-          {/* Count */}
-          <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Cell count</p>
-            <p className="text-3xl font-bold tabular-nums">{passing ?? '—'}</p>
+          {/* Counts — switches based on active channel */}
+          <div className="space-y-1">
+            {inEduMode ? (
+              <div>
+                <p className="text-xs text-orange-400 uppercase tracking-wider mb-0.5">EdU+ nuclei</p>
+                <p className="text-3xl font-bold tabular-nums text-orange-300">{eduCount ?? '—'}</p>
+                {eduCount != null && passing != null && passing > 0 && (
+                  <p className="text-xs text-gray-500 mt-0.5">{Math.round(eduCount / passing * 100)}% of {passing} DAPI</p>
+                )}
+              </div>
+            ) : (
+              <div>
+                <p className="text-xs text-teal-400 uppercase tracking-wider mb-0.5">DAPI nuclei</p>
+                <p className="text-3xl font-bold tabular-nums">{passing ?? '—'}</p>
+                {hasEdu && eduCount != null && passing != null && passing > 0 && (
+                  <p className="text-xs text-orange-400 mt-0.5">
+                    {eduCount} EdU+ ({Math.round(eduCount / passing * 100)}%)
+                  </p>
+                )}
+              </div>
+            )}
             {hasCorrections && (
-              <p className="text-xs text-amber-400 mt-0.5">
+              <p className="text-xs text-amber-400">
                 {corrections.deleted.length > 0 && `−${corrections.deleted.length}`}
                 {corrections.deleted.length > 0 && corrections.added.length > 0 && ' '}
                 {corrections.added.length > 0 && `+${corrections.added.length}`}
               </p>
             )}
-            {currentImage?.raw_count !== null && (
-              <p className="text-xs text-gray-500 mt-0.5">AI detected: {currentImage?.raw_count}</p>
+            {currentImage?.raw_count != null && (
+              <p className="text-xs text-gray-600">AI raw: {currentImage.raw_count}</p>
             )}
           </div>
 
-          {/* Quick size filter */}
-          <div className="space-y-2">
-            <p className="text-xs text-gray-500 uppercase tracking-wider">Filter small specks</p>
-            <div>
-              <div className="flex justify-between text-xs text-gray-400 mb-1">
-                <span>Min cell size</span>
-                <span className="tabular-nums">{activeMinUm2} µm²</span>
-              </div>
-              <input type="range" min={0} max={200} step={5} value={activeMinUm2}
-                onChange={e => setLocalMinUm2(Number(e.target.value))}
-                onMouseUp={() => settingsMut.mutate(activeMinUm2)}
-                onTouchEnd={() => settingsMut.mutate(activeMinUm2)}
-                className="w-full accent-indigo-500" />
-              <div className="flex justify-between text-xs text-gray-600 mt-0.5">
-                <span>Include all</span><span>Large only</span>
-              </div>
-            </div>
+          {/* Overlay toggle in sidebar too */}
+          <div>
+            <button
+              onClick={() => setShowOverlay(v => !v)}
+              className={`w-full py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all ${
+                showOverlay
+                  ? 'bg-teal-700/80 text-teal-100 ring-1 ring-teal-600'
+                  : 'bg-gray-700/50 text-gray-500'
+              }`}
+            >
+              <span className="text-base leading-none">{showOverlay ? '◉' : '○'}</span>
+              {showOverlay ? 'Outlines visible' : 'Outlines hidden'}
+            </button>
           </div>
+
+          {/* EdU threshold slider — only shown when viewing EdU channel */}
+          {inEduMode && hasEdu && eduMeans.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-orange-400 uppercase tracking-wider">EdU+ threshold</p>
+                <button
+                  onClick={() => setEduThreshold(dets?.edu_threshold ?? null)}
+                  className="text-xs text-gray-600 hover:text-gray-400"
+                  title="Reset to auto"
+                >↺ auto</button>
+              </div>
+              <input
+                type="range"
+                min={eduMin} max={eduMax}
+                step={(eduMax - eduMin) / 200}
+                value={activeEduThreshold ?? ((eduMin + eduMax) / 2)}
+                onChange={e => setEduThreshold(Number(e.target.value))}
+                className="w-full accent-orange-500"
+              />
+              <div className="flex justify-between text-xs text-gray-600">
+                <span>More EdU+</span><span>Fewer EdU+</span>
+              </div>
+              <p className="text-xs text-gray-500">
+                Orange outlines = EdU+ · Teal = DAPI only
+              </p>
+            </div>
+          )}
 
           {/* Display */}
           <div className="space-y-3">
