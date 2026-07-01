@@ -26,6 +26,7 @@ class Project(SQLModel, table=True):
     # Segmentation params (set during calibration; changing these needs a re-segment).
     model_name: str = "StarDist fluo"
     sensitivity: float = 0.5
+    nms_thresh: float = 0.3   # nucleus overlap tolerance: higher = more merged, lower = more split
 
     # Project-wide filters (live; re-applied to cached tables without re-segmenting).
     min_um2: float = 30.0

@@ -59,7 +59,8 @@ def process_image(image_id: int) -> None:
                 dapi_idx = 0
 
             labels = segment.segment(
-                nuclei, project.model_name, project.sensitivity, pixel_um
+                nuclei, project.model_name, project.sensitivity, pixel_um,
+                nms_thresh=project.nms_thresh,
             )
 
             props = measure.regionprops_df(labels, pixel_um)
@@ -73,24 +74,29 @@ def process_image(image_id: int) -> None:
             edu_threshold = None
             edu_count = None
             if edu_idx is not None and edu_idx < data.n_channels:
+                from skimage.filters import threshold_otsu
                 edu_channel_arr = data.channel(edu_idx)
+                dapi_channel_arr = data.channel(dapi_idx)
                 edu_means = compare.marker_intensity(labels, edu_channel_arr)
+                dapi_means = compare.marker_intensity(labels, dapi_channel_arr)
+                # EdU/DAPI ratio per nucleus cancels bleedthrough (DAPI signal is
+                # proportional in both channels; dividing removes the constant offset)
+                edu_vals = edu_means["intensity_mean"].to_numpy()
+                dapi_vals = dapi_means["intensity_mean"].to_numpy()
+                edu_ratio = edu_vals / (dapi_vals + 1e-6)
                 props = props.merge(
                     edu_means.rename(columns={"intensity_mean": "edu_mean"}),
                     on="label", how="left",
                 )
-                edu_vals = edu_means["intensity_mean"].to_numpy()
-                # Background-correct: subtract mean EdU intensity of non-nucleus pixels
-                # to remove DAPI spectral bleedthrough before thresholding
-                background_mask = labels == 0
-                background_edu = float(edu_channel_arr[background_mask].mean()) if background_mask.any() else 0.0
-                edu_corrected = np.maximum(0, edu_vals - background_edu)
-                if len(edu_corrected) > 1 and edu_corrected.max() > 0:
-                    edu_threshold = float(np.percentile(edu_corrected, 75)) + background_edu
-                    edu_count = int((edu_corrected > (edu_threshold - background_edu)).sum())
-                elif len(edu_vals) > 1:
-                    edu_threshold = float(np.percentile(edu_vals, 80))
-                    edu_count = int(compare.positive_mask(edu_vals, edu_threshold).sum())
+                ratio_df = edu_means[["label"]].copy()
+                ratio_df["edu_ratio"] = edu_ratio
+                props = props.merge(ratio_df, on="label", how="left")
+                if len(edu_ratio) > 1 and not np.allclose(edu_ratio, edu_ratio[0]):
+                    edu_threshold = float(threshold_otsu(edu_ratio))
+                    edu_count = int((edu_ratio > edu_threshold).sum())
+                elif len(edu_ratio) > 1:
+                    edu_threshold = float(np.median(edu_ratio))
+                    edu_count = int((edu_ratio > edu_threshold).sum())
 
             props.to_csv(paths["detections"], index=False)
             paths["contours"].write_text(

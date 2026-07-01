@@ -45,11 +45,12 @@ def segment(
     model_name: str = STARDIST,
     sensitivity: float = 0.5,
     pixel_um: float | None = None,
+    nms_thresh: float = 0.3,
 ) -> np.ndarray:
     """Segment a single 2D channel into an int label image (0 = background, 1..N = cells)."""
     if model_name == CELLPOSE:
         return _segment_cellpose(image2d, sensitivity)
-    return _segment_stardist(image2d, sensitivity, pixel_um)
+    return _segment_stardist(image2d, sensitivity, pixel_um, nms_thresh)
 
 
 # --- StarDist ---------------------------------------------------------------------------
@@ -76,7 +77,7 @@ def _get_stardist():
 
 
 def _segment_stardist(
-    image2d: np.ndarray, sensitivity: float, pixel_um: float | None
+    image2d: np.ndarray, sensitivity: float, pixel_um: float | None, nms_thresh: float = 0.3
 ) -> np.ndarray:
     from csbdeep.utils import normalize
 
@@ -90,7 +91,7 @@ def _segment_stardist(
     labels, _ = model.predict_instances(
         img,
         prob_thresh=prob_thresh,
-        nms_thresh=0.3,
+        nms_thresh=float(nms_thresh),
         scale=scale,
         n_tiles=_guess_n_tiles(img.shape),
     )

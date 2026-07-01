@@ -52,6 +52,7 @@ class Detection(BaseModel):
     circularity: float
     polygon: list[list[int]]
     edu_mean: float | None = None
+    edu_ratio: float | None = None   # edu_mean / dapi_mean — cancels bleedthrough
 
 
 class DetectionsResponse(BaseModel):
@@ -75,6 +76,7 @@ class StatusResponse(BaseModel):
 class SettingsUpdate(BaseModel):
     model_name: str | None = None
     sensitivity: float | None = None
+    nms_thresh: float | None = None
     min_um2: float | None = None
     max_um2: float | None = None
     min_circ: float | None = None

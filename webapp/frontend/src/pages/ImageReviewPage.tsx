@@ -10,8 +10,8 @@ import OverlayCanvas from '../components/OverlayCanvas'
 
 type ReviewStatus = 'unreviewed' | 'approved' | 'needs_fix'
 
-function ReviewButton({ label, sublabel, active, onClick, activeClass }: {
-  label: string; sublabel: string; active: boolean; onClick: () => void; activeClass: string
+function ReviewButton({ label, sublabel, hotkey, active, onClick, activeClass }: {
+  label: string; sublabel: string; hotkey: string; active: boolean; onClick: () => void; activeClass: string
 }) {
   return (
     <button
@@ -22,7 +22,12 @@ function ReviewButton({ label, sublabel, active, onClick, activeClass }: {
           : 'bg-gray-800/60 border-gray-700 hover:bg-gray-700/60 text-gray-400'
       }`}
     >
-      <p className={`text-sm font-semibold leading-tight ${active ? '' : 'text-gray-300'}`}>{label}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className={`text-sm font-semibold leading-tight ${active ? '' : 'text-gray-300'}`}>{label}</p>
+        <kbd className={`text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 ${
+          active ? 'bg-black/20 text-white/70' : 'bg-gray-700 text-gray-500'
+        }`}>{hotkey}</kbd>
+      </div>
       <p className={`text-xs mt-0.5 ${active ? 'opacity-80' : 'text-gray-600'}`}>{sublabel}</p>
     </button>
   )
@@ -59,6 +64,7 @@ export default function ImageReviewPage() {
   const [showOverlay, setShowOverlay] = useState(true)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [baseScale, setBaseScale] = useState(1)
   const [brightness, setBrightness] = useState(1.0)
   const [contrast, setContrast] = useState(1.0)
   const [activeChannel, setActiveChannel] = useState<number | null>(null) // null = DAPI
@@ -231,9 +237,13 @@ export default function ImageReviewPage() {
     isPanning.current = false
   }, [handleClick])
 
-  const baseScale = dets
-    ? Math.min(1, (viewportRef.current?.clientWidth ?? 900) / Math.max(dets.width, dets.height))
-    : 1
+  // Fit image to viewport whenever a new image loads — accounts for both w and h
+  useEffect(() => {
+    if (!dets || !viewportRef.current) return
+    const vw = viewportRef.current.clientWidth || 900
+    const vh = viewportRef.current.clientHeight || 700
+    setBaseScale(Math.min(1, vw / dets.width, vh / dets.height))
+  }, [dets?.width, dets?.height, imageId])
 
   const activeMinUm2 = project?.min_um2 ?? 0
   const activeEduThreshold = eduThreshold ?? dets?.edu_threshold ?? null
@@ -253,13 +263,11 @@ export default function ImageReviewPage() {
 
   const hasEdu = dets?.edu_threshold != null
   const eduCount = hasEdu && activeEduThreshold != null
-    ? passingDets.filter(d => d.edu_mean != null && d.edu_mean > activeEduThreshold).length
+    ? passingDets.filter(d => {
+        const val = d.edu_ratio ?? d.edu_mean
+        return val != null && val > activeEduThreshold
+      }).length
     : null
-
-  // EdU slider range from detections
-  const eduMeans = dets?.detections.map(d => d.edu_mean).filter((v): v is number => v != null) ?? []
-  const eduMin = eduMeans.length ? Math.min(...eduMeans) : 0
-  const eduMax = eduMeans.length ? Math.max(...eduMeans) : 1
 
   const reviewStatus = currentImage?.review_status ?? 'unreviewed'
   const hasCorrections = corrections.deleted.length > 0 || corrections.added.length > 0
@@ -377,9 +385,9 @@ export default function ImageReviewPage() {
                   {hover.det.area_um2 != null && (
                     <p className="text-gray-400">{hover.det.area_um2} µm² · circ {hover.det.circularity.toFixed(2)}</p>
                   )}
-                  {activeEduThreshold != null && hover.det.edu_mean != null && (
-                    <p className={hover.det.edu_mean > activeEduThreshold ? 'text-orange-400' : 'text-teal-400'}>
-                      {hover.det.edu_mean > activeEduThreshold ? '● EdU+ (proliferating)' : '● DAPI only'}
+                  {activeEduThreshold != null && (hover.det.edu_ratio ?? hover.det.edu_mean) != null && (
+                    <p className={(hover.det.edu_ratio ?? hover.det.edu_mean)! > activeEduThreshold ? 'text-orange-400' : 'text-teal-400'}>
+                      {(hover.det.edu_ratio ?? hover.det.edu_mean)! > activeEduThreshold ? '● EdU+ (proliferating)' : '● DAPI only'}
                     </p>
                   )}
                   <p className={`mt-1 font-medium ${hover.deleted ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -462,6 +470,7 @@ export default function ImageReviewPage() {
             <ReviewButton
               label="✓  Looks good"
               sublabel="Count looks correct"
+              hotkey="A"
               active={reviewStatus === 'approved'}
               onClick={() => reviewMut.mutate({ id: imageId, status: 'approved' })}
               activeClass="bg-emerald-700 text-emerald-50"
@@ -469,6 +478,7 @@ export default function ImageReviewPage() {
             <ReviewButton
               label="⚑  Needs review"
               sublabel="Something looks off"
+              hotkey="F"
               active={reviewStatus === 'needs_fix'}
               onClick={() => reviewMut.mutate({ id: imageId, status: 'needs_fix' })}
               activeClass="bg-amber-700 text-amber-50"
@@ -476,6 +486,7 @@ export default function ImageReviewPage() {
             <ReviewButton
               label="○  Not reviewed"
               sublabel="Come back to this"
+              hotkey="U"
               active={reviewStatus === 'unreviewed'}
               onClick={() => reviewMut.mutate({ id: imageId, status: 'unreviewed' })}
               activeClass="bg-gray-600 text-gray-100"

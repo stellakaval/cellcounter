@@ -10,6 +10,7 @@ export interface Project {
   created_at: string
   model_name: string
   sensitivity: number
+  nms_thresh: number
   min_um2: number | null
   max_um2: number | null
   min_circ: number | null
@@ -40,6 +41,7 @@ export interface Detection {
   circularity: number
   polygon: [number, number][]
   edu_mean: number | null
+  edu_ratio: number | null
 }
 
 export interface DetectionsResponse {
@@ -61,6 +63,7 @@ export interface ReviewProgress {
 export interface ProjectSettings {
   model_name?: string
   sensitivity?: number
+  nms_thresh?: number
   min_um2?: number | null
   max_um2?: number | null
   min_circ?: number | null

@@ -131,48 +131,62 @@ def detections(
         meta = json.loads(paths["meta"].read_text())
         edu_threshold = meta.get("edu_threshold")
 
-        if "edu_mean" not in props.columns and meta.get("markers") and paths["labels"].exists():
+        if "edu_ratio" not in props.columns and meta.get("markers") and paths["labels"].exists():
             markers = meta.get("markers", {})
             edu_ch = markers.get("EdU")
             if edu_ch is not None:
                 import numpy as np
                 import tifffile
                 from cellcounter import compare
+                from skimage.filters import threshold_otsu
                 labels = tifffile.imread(paths["labels"])
                 data = io.load_image(image.source_path, scene_index=image.scene_index)
+                dapi_idx = meta.get("dapi_channel", 0)
                 edu_channel = data.channel(int(edu_ch))
+                dapi_channel = data.channel(int(dapi_idx))
                 edu_means = compare.marker_intensity(labels, edu_channel)
+                dapi_means = compare.marker_intensity(labels, dapi_channel)
+                edu_vals = edu_means["intensity_mean"].to_numpy()
+                dapi_vals = dapi_means["intensity_mean"].to_numpy()
+                edu_ratio = edu_vals / (dapi_vals + 1e-6)
                 props = props.merge(
                     edu_means.rename(columns={"intensity_mean": "edu_mean"}),
                     on="label", how="left",
                 )
+                ratio_df = edu_means[["label"]].copy()
+                ratio_df["edu_ratio"] = edu_ratio
+                props = props.merge(ratio_df, on="label", how="left")
                 props.to_csv(paths["detections"], index=False)
-                edu_vals = edu_means["intensity_mean"].to_numpy()
-                if len(edu_vals) > 1:
-                    background_mask = labels == 0
-                    background_edu = float(edu_channel[background_mask].mean()) if background_mask.any() else 0.0
-                    edu_corrected = np.maximum(0, edu_vals - background_edu)
-                    if edu_corrected.max() > 0:
-                        edu_threshold = float(np.percentile(edu_corrected, 75)) + background_edu
-                        edu_count = int((edu_corrected > (edu_threshold - background_edu)).sum())
-                    else:
-                        edu_threshold = float(np.percentile(edu_vals, 80))
-                        edu_count = int(compare.positive_mask(edu_vals, edu_threshold).sum())
-                    meta["edu_threshold"] = edu_threshold
-                    meta["edu_count"] = edu_count
-                    paths["meta"].write_text(json.dumps(meta, default=str))
-                    image.edu_count = edu_count
-                    session.add(image)
-                    session.commit()
+                if len(edu_ratio) > 1 and not np.allclose(edu_ratio, edu_ratio[0]):
+                    edu_threshold = float(threshold_otsu(edu_ratio))
+                    edu_count = int((edu_ratio > edu_threshold).sum())
+                elif len(edu_ratio) > 1:
+                    edu_threshold = float(np.median(edu_ratio))
+                    edu_count = int((edu_ratio > edu_threshold).sum())
+                else:
+                    edu_threshold = None
+                    edu_count = None
+                meta["edu_threshold"] = edu_threshold
+                meta["edu_count"] = edu_count
+                paths["meta"].write_text(json.dumps(meta, default=str))
+                image.edu_count = edu_count
+                session.add(image)
+                session.commit()
 
     out: list[Detection] = []
     for r in props.itertuples():
         area = getattr(r, "area_um2", None)
         if area is not None and pd.isna(area):
             area = None
-        edu_mean_val = getattr(r, "edu_mean", None)
-        if edu_mean_val is not None and pd.isna(float(edu_mean_val)):
-            edu_mean_val = None
+        def _safe_float(val):
+            if val is None: return None
+            try:
+                f = float(val)
+                return None if pd.isna(f) else f
+            except (TypeError, ValueError):
+                return None
+        edu_mean_val = _safe_float(getattr(r, "edu_mean", None))
+        edu_ratio_val = _safe_float(getattr(r, "edu_ratio", None))
         out.append(
             Detection(
                 label=int(r.label),
@@ -181,7 +195,8 @@ def detections(
                 area_um2=None if area is None else round(float(area), 2),
                 circularity=round(float(r.circularity), 3),
                 polygon=polys.get(str(int(r.label)), []),
-                edu_mean=None if edu_mean_val is None else round(float(edu_mean_val), 2),
+                edu_mean=None if edu_mean_val is None else round(edu_mean_val, 2),
+                edu_ratio=None if edu_ratio_val is None else round(edu_ratio_val, 4),
             )
         )
     return DetectionsResponse(

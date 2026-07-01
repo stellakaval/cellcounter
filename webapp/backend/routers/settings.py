@@ -19,7 +19,7 @@ from ..services import filters
 router = APIRouter(prefix="/api/projects", tags=["settings"])
 
 _FILTER_FIELDS = {"min_um2", "max_um2", "min_circ"}
-_RESEGMENT_FIELDS = {"model_name", "sensitivity"}
+_RESEGMENT_FIELDS = {"model_name", "sensitivity", "nms_thresh"}
 
 
 @router.get("/{project_id}/settings")
@@ -30,8 +30,8 @@ def get_settings(project_id: int, session: Session = Depends(get_session)) -> di
     return {
         f: getattr(project, f)
         for f in (
-            "model_name", "sensitivity", "min_um2", "max_um2",
-            "min_circ", "edu_channel", "pdgfra_channel",
+            "model_name", "sensitivity", "nms_thresh",
+            "min_um2", "max_um2", "min_circ", "edu_channel", "pdgfra_channel",
         )
     }
 

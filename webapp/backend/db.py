@@ -35,9 +35,10 @@ def _migrate(engine) -> None:
     """Add columns that may be missing in existing DBs (forward-only, additive)."""
     from sqlalchemy import text
     new_cols = [
-        ("image", "scene_index", "INTEGER NOT NULL DEFAULT 0"),
-        ("image", "scene_name",  "TEXT"),
-        ("image", "edu_count",   "INTEGER"),
+        ("image",   "scene_index", "INTEGER NOT NULL DEFAULT 0"),
+        ("image",   "scene_name",  "TEXT"),
+        ("image",   "edu_count",   "INTEGER"),
+        ("project", "nms_thresh",  "REAL NOT NULL DEFAULT 0.3"),
     ]
     with engine.connect() as conn:
         for table, col, definition in new_cols:

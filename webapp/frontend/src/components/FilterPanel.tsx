@@ -22,21 +22,27 @@ const SENSITIVITY_PRESETS = [
   { label: 'High', value: 0.3, desc: 'Include dim nuclei' },
 ]
 
+const SEPARATION_PRESETS = [
+  { label: 'Less', value: 0.5, desc: 'Count dense/touching clusters' },
+  { label: 'Balanced', value: 0.3, desc: 'Default — works for most images' },
+  { label: 'More', value: 0.15, desc: 'Only count clearly separated nuclei' },
+]
+
 interface Props {
   projectId: number
-  current: ProjectSettings & { sensitivity?: number }
+  current: ProjectSettings & { sensitivity?: number; nms_thresh?: number }
 }
 
 export default function FilterPanel({ projectId, current }: Props) {
   const qc = useQueryClient()
 
-  // Saved = what's on the server right now
   const [savedSpeck] = useState(() => nearestSpeckPreset(current.min_um2))
   const [savedSensitivity] = useState(current.sensitivity ?? 0.5)
+  const [savedNms] = useState(current.nms_thresh ?? 0.3)
 
-  // Pending = staged local changes not yet applied
   const [speckLevel, setSpeckLevel] = useState(savedSpeck)
   const [sensitivity, setSensitivity] = useState(savedSensitivity)
+  const [nmsThresh, setNmsThresh] = useState(savedNms)
   const [minUm2, setMinUm2] = useState(String(current.min_um2 ?? ''))
   const [maxUm2, setMaxUm2] = useState(String(current.max_um2 ?? ''))
   const [minCirc, setMinCirc] = useState(String(current.min_circ ?? ''))
@@ -45,9 +51,9 @@ export default function FilterPanel({ projectId, current }: Props) {
   const [needsRerun, setNeedsRerun] = useState(false)
   const [rerunDone, setRerunDone] = useState(false)
 
-  // Track what was last applied so we can compute hasPendingChanges
   const [appliedSpeck, setAppliedSpeck] = useState(savedSpeck)
   const [appliedSensitivity, setAppliedSensitivity] = useState(savedSensitivity)
+  const [appliedNms, setAppliedNms] = useState(savedNms)
   const [appliedMinUm2, setAppliedMinUm2] = useState(String(current.min_um2 ?? ''))
   const [appliedMaxUm2, setAppliedMaxUm2] = useState(String(current.max_um2 ?? ''))
   const [appliedMinCirc, setAppliedMinCirc] = useState(String(current.min_circ ?? ''))
@@ -55,17 +61,19 @@ export default function FilterPanel({ projectId, current }: Props) {
   const hasPendingChanges =
     speckLevel !== appliedSpeck ||
     sensitivity !== appliedSensitivity ||
+    nmsThresh !== appliedNms ||
     minUm2 !== appliedMinUm2 ||
     maxUm2 !== appliedMaxUm2 ||
     minCirc !== appliedMinCirc
 
   const mut = useMutation({
-    mutationFn: (s: ProjectSettings & { sensitivity?: number }) => updateSettings(projectId, s),
+    mutationFn: (s: ProjectSettings & { sensitivity?: number; nms_thresh?: number }) => updateSettings(projectId, s),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['images', projectId] })
       qc.invalidateQueries({ queryKey: ['project', projectId] })
       setAppliedSpeck(speckLevel)
       setAppliedSensitivity(sensitivity)
+      setAppliedNms(nmsThresh)
       setAppliedMinUm2(minUm2)
       setAppliedMaxUm2(maxUm2)
       setAppliedMinCirc(minCirc)
@@ -89,6 +97,7 @@ export default function FilterPanel({ projectId, current }: Props) {
       max_um2: maxUm2 !== '' ? Number(maxUm2) : null,
       min_circ: minCirc !== '' ? Number(minCirc) : null,
       sensitivity,
+      nms_thresh: nmsThresh,
     })
   }
 
@@ -145,6 +154,30 @@ export default function FilterPanel({ projectId, current }: Props) {
               className={`py-2 rounded-lg text-xs font-medium transition-all ${
                 nearestSens === p.value
                   ? 'bg-violet-600 text-white ring-2 ring-violet-400'
+                  : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Separate touching nuclei */}
+      <div>
+        <p className="text-xs font-medium text-gray-300 mb-1">Separate touching nuclei</p>
+        <p className="text-xs text-gray-500 mb-2">
+          Less splits merged blobs; More only counts clearly separated nuclei. Requires re-processing.
+        </p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {SEPARATION_PRESETS.map(p => (
+            <button
+              key={p.label}
+              onClick={() => setNmsThresh(p.value)}
+              title={p.desc}
+              className={`py-2 rounded-lg text-xs font-medium transition-all ${
+                nmsThresh === p.value
+                  ? 'bg-sky-600 text-white ring-2 ring-sky-400'
                   : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
               }`}
             >

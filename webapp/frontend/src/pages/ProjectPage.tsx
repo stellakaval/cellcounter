@@ -166,7 +166,10 @@ export default function ProjectPage() {
             <div className="w-64 shrink-0">
               <FilterPanel
                 projectId={projectId}
-                current={{ min_um2: project.min_um2, max_um2: project.max_um2, min_circ: project.min_circ }}
+                current={{
+                  min_um2: project.min_um2, max_um2: project.max_um2, min_circ: project.min_circ,
+                  sensitivity: project.sensitivity, nms_thresh: project.nms_thresh,
+                }}
               />
             </div>
           )}
