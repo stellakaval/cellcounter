@@ -141,9 +141,6 @@ export default function ProjectPage() {
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">
                         {img.filtered_count ?? '—'}
-                        {img.raw_count !== null && img.raw_count !== img.filtered_count && (
-                          <span className="text-gray-500 text-xs ml-1">({img.raw_count})</span>
-                        )}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-orange-300">
                         {img.edu_count ?? '—'}

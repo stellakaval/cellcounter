@@ -10,15 +10,20 @@ import OverlayCanvas from '../components/OverlayCanvas'
 
 type ReviewStatus = 'unreviewed' | 'approved' | 'needs_fix'
 
-function ReviewButton({ label, active, onClick, hotkey }: {
-  label: string; active: boolean; onClick: () => void; hotkey: string
+function ReviewButton({ label, sublabel, active, onClick, activeClass }: {
+  label: string; sublabel: string; active: boolean; onClick: () => void; activeClass: string
 }) {
   return (
-    <button onClick={onClick}
-      className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
-        active ? 'bg-indigo-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-      }`}>
-      {label} <kbd className="text-xs opacity-60 ml-1">[{hotkey}]</kbd>
+    <button
+      onClick={onClick}
+      className={`w-full py-3.5 px-4 rounded-xl text-left transition-all border ${
+        active
+          ? `${activeClass} border-transparent shadow-md`
+          : 'bg-gray-800/60 border-gray-700 hover:bg-gray-700/60 text-gray-400'
+      }`}
+    >
+      <p className={`text-sm font-semibold leading-tight ${active ? '' : 'text-gray-300'}`}>{label}</p>
+      <p className={`text-xs mt-0.5 ${active ? 'opacity-80' : 'text-gray-600'}`}>{sublabel}</p>
     </button>
   )
 }
@@ -425,9 +430,6 @@ export default function ImageReviewPage() {
                 {corrections.added.length > 0 && `+${corrections.added.length}`}
               </p>
             )}
-            {currentImage?.raw_count != null && (
-              <p className="text-xs text-gray-600">AI raw: {currentImage.raw_count}</p>
-            )}
           </div>
 
           {/* Overlay toggle in sidebar too */}
@@ -445,33 +447,6 @@ export default function ImageReviewPage() {
             </button>
           </div>
 
-          {/* EdU threshold slider — only shown when viewing EdU channel */}
-          {inEduMode && hasEdu && eduMeans.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-orange-400 uppercase tracking-wider">EdU+ threshold</p>
-                <button
-                  onClick={() => setEduThreshold(dets?.edu_threshold ?? null)}
-                  className="text-xs text-gray-600 hover:text-gray-400"
-                  title="Reset to auto"
-                >↺ auto</button>
-              </div>
-              <input
-                type="range"
-                min={eduMin} max={eduMax}
-                step={(eduMax - eduMin) / 200}
-                value={activeEduThreshold ?? ((eduMin + eduMax) / 2)}
-                onChange={e => setEduThreshold(Number(e.target.value))}
-                className="w-full accent-orange-500"
-              />
-              <div className="flex justify-between text-xs text-gray-600">
-                <span>More EdU+</span><span>Fewer EdU+</span>
-              </div>
-              <p className="text-xs text-gray-500">
-                Orange outlines = EdU+ · Teal = DAPI only
-              </p>
-            </div>
-          )}
 
           {/* Display */}
           <div className="space-y-3">
@@ -483,22 +458,28 @@ export default function ImageReviewPage() {
           </div>
 
           {/* Review */}
-          <div className="space-y-2">
-            <p className="text-xs text-gray-500 uppercase tracking-wider">Mark as</p>
-            <ReviewButton label="Looks good" active={reviewStatus === 'approved'}
-              onClick={() => reviewMut.mutate({ id: imageId, status: 'approved' })} hotkey="A" />
-            <ReviewButton label="Needs review" active={reviewStatus === 'needs_fix'}
-              onClick={() => reviewMut.mutate({ id: imageId, status: 'needs_fix' })} hotkey="F" />
-            <ReviewButton label="Unreviewed" active={reviewStatus === 'unreviewed'}
-              onClick={() => reviewMut.mutate({ id: imageId, status: 'unreviewed' })} hotkey="U" />
-          </div>
-
-          <div className="text-xs text-gray-600 mt-auto space-y-0.5 border-t border-gray-800 pt-3">
-            <p><kbd>A</kbd> approve &amp; next</p>
-            <p><kbd>F</kbd> flag &amp; next</p>
-            <p><kbd>← →</kbd> navigate</p>
-            <p><kbd>O</kbd> toggle outlines</p>
-            <p><kbd>0</kbd> reset zoom</p>
+          <div className="space-y-2.5 mt-auto">
+            <ReviewButton
+              label="✓  Looks good"
+              sublabel="Count looks correct"
+              active={reviewStatus === 'approved'}
+              onClick={() => reviewMut.mutate({ id: imageId, status: 'approved' })}
+              activeClass="bg-emerald-700 text-emerald-50"
+            />
+            <ReviewButton
+              label="⚑  Needs review"
+              sublabel="Something looks off"
+              active={reviewStatus === 'needs_fix'}
+              onClick={() => reviewMut.mutate({ id: imageId, status: 'needs_fix' })}
+              activeClass="bg-amber-700 text-amber-50"
+            />
+            <ReviewButton
+              label="○  Not reviewed"
+              sublabel="Come back to this"
+              active={reviewStatus === 'unreviewed'}
+              onClick={() => reviewMut.mutate({ id: imageId, status: 'unreviewed' })}
+              activeClass="bg-gray-600 text-gray-100"
+            />
           </div>
         </div>
       </div>
