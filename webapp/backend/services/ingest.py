@@ -9,12 +9,13 @@ from sqlmodel import Session, select
 from cellcounter.batch import list_images
 from cellcounter.io import count_scenes
 
-from ..models import Image
+from ..models import Image, Project
 from .. import worker
 
 
 def import_folder(
-    session: Session, project_id: int, folder: str | Path, *, calibration: bool = False
+    session: Session, project_id: int, folder: str | Path, *, calibration: bool = False,
+    dapi_channel: int = 0,
 ) -> list[int]:
     """Add every supported image in ``folder`` to the project and enqueue it.
 
@@ -43,6 +44,7 @@ def import_folder(
                 scene_name=f"Scene {scene_idx + 1}" if n_scenes > 1 else None,
                 status="queued",
                 is_calibration=calibration,
+                dapi_channel=dapi_channel,
             )
             session.add(image)
             session.commit()

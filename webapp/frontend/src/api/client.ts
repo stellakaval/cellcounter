@@ -89,10 +89,25 @@ export interface ProjectStatus {
 
 // ---- project endpoints ----
 export const listProjects = () => api.get<Project[]>('/projects').then(r => r.data)
-export const createProject = (body: { name: string; source_folder?: string }) =>
+export interface ProjectCreate {
+  name: string
+  model_name?: string
+  sensitivity?: number
+  nms_thresh?: number
+  min_um2?: number | null
+  max_um2?: number | null
+  min_circ?: number | null
+  dapi_channel?: number | null
+  edu_channel?: number | null
+}
+export const createProject = (body: ProjectCreate) =>
   api.post<Project>('/projects', body).then(r => r.data)
 export const getProject = (id: number) => api.get<Project>(`/projects/${id}`).then(r => r.data)
 export const deleteProject = (id: number) => api.delete(`/projects/${id}`)
+export const renameProject = (id: number, name: string) =>
+  api.put<Project>(`/projects/${id}/name`, { name }).then(r => r.data)
+export const deleteImage = (projectId: number, imageId: number) =>
+  api.delete(`/projects/${projectId}/images/${imageId}`)
 export const importFolder = (id: number) =>
   api.post(`/projects/${id}/import`).then(r => r.data)
 export const rerunProject = (id: number) =>
@@ -135,5 +150,17 @@ export const putCorrections = (imageId: number, body: Corrections) =>
 export const renderUrl = (imageId: number, channel?: number) =>
   channel !== undefined ? `/api/images/${imageId}/render?channel=${channel}` : `/api/images/${imageId}/render`
 export const thumbnailUrl = (imageId: number) => `/api/images/${imageId}/thumbnail`
-export const exportUrl = (projectId: number, perCell = false) =>
-  `/api/projects/${projectId}/export.xlsx${perCell ? '?include_per_cell=true' : ''}`
+
+export const downloadExport = async (projectId: number, projectName: string, perCell = false) => {
+  const resp = await api.get(
+    `/projects/${projectId}/export.xlsx${perCell ? '?include_per_cell=true' : ''}`,
+    { responseType: 'blob' }
+  )
+  const url = URL.createObjectURL(resp.data)
+  const a = document.createElement('a')
+  a.href = url
+  const safe = projectName.replace(/[^a-zA-Z0-9-_]/g, '_') || `project_${projectId}`
+  a.download = `${safe}_counts.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}

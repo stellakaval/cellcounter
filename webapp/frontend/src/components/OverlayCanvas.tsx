@@ -25,6 +25,11 @@ function passes(d: Detection, minUm2?: number | null, maxUm2?: number | null, mi
   return true
 }
 
+// Cyan for DAPI — high contrast on dark backgrounds with white nuclei (standard in fluorescence microscopy)
+const DAPI_COLOR = '#22d3ee'
+// Magenta for EdU+ — clearly distinct from cyan and white
+const EDU_COLOR = '#f472b6'
+
 export default function OverlayCanvas({
   detections, corrections, width, height, showOverlay,
   minUm2, maxUm2, minCirc, scale, eduThreshold, inEduMode, addedRadius,
@@ -43,14 +48,39 @@ export default function OverlayCanvas({
     const deletedEduSet = new Set(deletedEdu ?? [])
     const r = (addedRadius ?? 15) * scale
 
-    // Draw AI detections
+    // ── DAPI tab only: draw faint dashed outlines for cells that are detected but filtered out ──
+    if (!inEduMode) {
+      ctx.shadowBlur = 0
+      ctx.setLineDash([3, 5])
+      ctx.strokeStyle = 'rgba(34,211,238,0.22)'
+      ctx.lineWidth = 0.8
+      for (const d of detections) {
+        if (deletedSet.has(d.label)) continue       // deleted — handled below
+        if (passes(d, minUm2, maxUm2, minCirc)) continue  // passing — handled in main pass
+        if (d.polygon.length > 1) {
+          ctx.beginPath()
+          ctx.moveTo(d.polygon[0][0] * scale, d.polygon[0][1] * scale)
+          for (let i = 1; i < d.polygon.length; i++) ctx.lineTo(d.polygon[i][0] * scale, d.polygon[i][1] * scale)
+          ctx.closePath()
+          ctx.stroke()
+        } else {
+          ctx.beginPath()
+          ctx.arc(d.cx * scale, d.cy * scale, (addedRadius ?? 10) * scale, 0, Math.PI * 2)
+          ctx.stroke()
+        }
+      }
+      ctx.setLineDash([])
+    }
+
+    // ── Main pass: draw all detections ──
     for (const d of detections) {
       const ok = passes(d, minUm2, maxUm2, minCirc)
       const deleted = deletedSet.has(d.label)
+      const deletedEduMark = deletedEduSet.has(d.label)
 
+      // Deleted from DAPI: show red strikethrough in DAPI mode
       if (deleted) {
-        // On EdU tab: cells removed from DAPI are also gone from EdU — hide
-        if (inEduMode) continue
+        if (inEduMode) continue  // don't show DAPI-deleted cells on EdU tab at all
         const cx = d.cx * scale
         const cy = d.cy * scale
         if (d.polygon.length > 1) {
@@ -61,6 +91,7 @@ export default function OverlayCanvas({
           ctx.strokeStyle = 'rgba(239,68,68,0.5)'
           ctx.lineWidth = 1.5
           ctx.setLineDash([3, 3])
+          ctx.shadowBlur = 0
           ctx.stroke()
           ctx.setLineDash([])
         }
@@ -70,25 +101,27 @@ export default function OverlayCanvas({
         ctx.moveTo(cx + xr, cy - xr); ctx.lineTo(cx - xr, cy + xr)
         ctx.strokeStyle = 'rgba(239,68,68,0.9)'
         ctx.lineWidth = 2
+        ctx.setLineDash([])
+        ctx.shadowBlur = 0
         ctx.stroke()
         continue
       }
 
-      if (!ok) continue
-
-      const eduMean = (d as any).edu_ratio ?? d.edu_mean
-      const isEduPos = eduThreshold != null && eduMean != null && eduMean > eduThreshold
-      const markedNotEdu = deletedEduSet.has(d.label)
+      if (!ok) continue  // filtered-out cells already drawn above as faint dashes
 
       if (inEduMode) {
-        // EdU tab: only show EdU+ cells; if manually marked not-EdU, show with red X
-        if (!isEduPos && !markedNotEdu) continue
+        // ── EdU tab: show only EdU+ cells ──
+        const eduMean = (d as any).edu_ratio ?? d.edu_mean
+        const isEduPos = eduThreshold != null && eduMean != null && eduMean > eduThreshold
+
+        if (!isEduPos && !deletedEduMark) continue
+
         const cx = d.cx * scale
         const cy = d.cy * scale
 
-        if (markedNotEdu) {
-          // Struck-out: muted orange outline + red X
-          ctx.strokeStyle = 'rgba(255,140,0,0.35)'
+        if (deletedEduMark) {
+          // Marked not-EdU: muted dashed + red X
+          ctx.strokeStyle = 'rgba(244,114,182,0.35)'
           ctx.lineWidth = 1.5
           ctx.setLineDash([3, 3])
           ctx.shadowBlur = 0
@@ -110,12 +143,12 @@ export default function OverlayCanvas({
           continue
         }
 
-        // Normal EdU+ cell — draw orange outline
-        ctx.strokeStyle = '#ff8c00'
-        ctx.lineWidth = 2.5
+        // Normal EdU+ cell — magenta outline
+        ctx.strokeStyle = EDU_COLOR
+        ctx.lineWidth = 2
         ctx.setLineDash([])
-        ctx.shadowBlur = 4
-        ctx.shadowColor = '#ff8c00'
+        ctx.shadowBlur = 5
+        ctx.shadowColor = EDU_COLOR
         if (d.polygon.length > 1) {
           ctx.beginPath()
           ctx.moveTo(d.polygon[0][0] * scale, d.polygon[0][1] * scale)
@@ -123,22 +156,20 @@ export default function OverlayCanvas({
           ctx.closePath()
           ctx.stroke()
         } else {
-          const fr = (addedRadius ?? 10) * scale
           ctx.beginPath()
-          ctx.arc(d.cx * scale, d.cy * scale, fr, 0, Math.PI * 2)
+          ctx.arc(d.cx * scale, d.cy * scale, (addedRadius ?? 10) * scale, 0, Math.PI * 2)
           ctx.stroke()
         }
         ctx.shadowBlur = 0
         continue
       }
 
-      // DAPI tab: yellow — high contrast on both dark and bright DAPI backgrounds
-      const color = '#facc15'
-      ctx.strokeStyle = color
+      // ── DAPI tab: cyan outline for counted cells ──
+      ctx.strokeStyle = DAPI_COLOR
       ctx.lineWidth = 1.5
       ctx.setLineDash([])
-      ctx.shadowBlur = 6
-      ctx.shadowColor = color
+      ctx.shadowBlur = 4
+      ctx.shadowColor = DAPI_COLOR
       if (d.polygon.length > 1) {
         ctx.beginPath()
         ctx.moveTo(d.polygon[0][0] * scale, d.polygon[0][1] * scale)
@@ -146,7 +177,6 @@ export default function OverlayCanvas({
         ctx.closePath()
         ctx.stroke()
       } else {
-        // Fallback circle sized to the median nucleus, not a hardcoded tiny radius
         const fr = (addedRadius ?? 10) * scale
         ctx.beginPath()
         ctx.arc(d.cx * scale, d.cy * scale, fr, 0, Math.PI * 2)
@@ -155,35 +185,30 @@ export default function OverlayCanvas({
       ctx.shadowBlur = 0
     }
 
+    // ── Manually added cells ──
+    ctx.setLineDash([])
     if (inEduMode) {
-      // Draw manually added EdU cells as orange nucleus-style outlines
-      const eduColor = '#ff8c00'
       ctx.shadowBlur = 4
-      ctx.shadowColor = eduColor
-      ctx.strokeStyle = eduColor
-      ctx.lineWidth = 2.5
-      ctx.setLineDash([])
+      ctx.shadowColor = EDU_COLOR
+      ctx.strokeStyle = EDU_COLOR
+      ctx.lineWidth = 2
       for (const pt of (addedEdu ?? [])) {
         ctx.beginPath()
         ctx.arc(pt.cx * scale, pt.cy * scale, r, 0, Math.PI * 2)
         ctx.stroke()
       }
-      ctx.shadowBlur = 0
     } else {
-      // Draw manually added DAPI cells — same yellow as AI outlines
-      const dapiColor = '#facc15'
       ctx.shadowBlur = 4
-      ctx.shadowColor = dapiColor
-      ctx.strokeStyle = dapiColor
-      ctx.lineWidth = 2.5
-      ctx.setLineDash([])
+      ctx.shadowColor = DAPI_COLOR
+      ctx.strokeStyle = DAPI_COLOR
+      ctx.lineWidth = 2
       for (const pt of corrections.added) {
         ctx.beginPath()
         ctx.arc(pt.cx * scale, pt.cy * scale, r, 0, Math.PI * 2)
         ctx.stroke()
       }
-      ctx.shadowBlur = 0
     }
+    ctx.shadowBlur = 0
   }, [detections, corrections, showOverlay, minUm2, maxUm2, minCirc, scale, eduThreshold, inEduMode, addedRadius, addedEdu, deletedEdu])
 
   return (

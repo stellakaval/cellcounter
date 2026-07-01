@@ -10,9 +10,12 @@ class ProjectCreate(BaseModel):
     source_folder: str = ""
     model_name: str | None = None
     sensitivity: float | None = None
+    nms_thresh: float | None = None
     min_um2: float | None = None
     max_um2: float | None = None
     min_circ: float | None = None
+    dapi_channel: int | None = None  # which channel index is DAPI/nuclei (default 0)
+    edu_channel: int | None = None   # which channel index is EdU (None = no EdU)
 
 
 class ProjectSummary(BaseModel):

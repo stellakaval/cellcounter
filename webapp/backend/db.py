@@ -37,23 +37,36 @@ def get_engine():
 
 
 def _migrate(engine) -> None:
-    """Add columns that may be missing in existing DBs (forward-only, additive).
-
-    SQLite only — Postgres gets the correct schema from create_all.
-    """
+    """Add columns that may be missing in existing DBs (forward-only, additive)."""
     from sqlalchemy import text
 
-    # Only run PRAGMA-based migrations on SQLite
     url_str = str(engine.url)
+
+    # Postgres: use ADD COLUMN IF NOT EXISTS (safe no-op when already exists)
     if not url_str.startswith("sqlite"):
+        pg_cols = [
+            ("image",   "scene_index",  "INTEGER NOT NULL DEFAULT 0"),
+            ("image",   "scene_name",   "TEXT"),
+            ("image",   "edu_count",    "INTEGER"),
+            ("project", "nms_thresh",   "REAL NOT NULL DEFAULT 0.3"),
+            ("project", "user_id",      "TEXT NOT NULL DEFAULT ''"),
+            ("project", "dapi_channel", "INTEGER NOT NULL DEFAULT 0"),
+        ]
+        with engine.connect() as conn:
+            for table, col, definition in pg_cols:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {definition}"))
+            conn.commit()
         return
 
+    # SQLite: PRAGMA-based migration (ADD COLUMN IF NOT EXISTS not supported)
+
     new_cols = [
-        ("image",   "scene_index", "INTEGER NOT NULL DEFAULT 0"),
-        ("image",   "scene_name",  "TEXT"),
-        ("image",   "edu_count",   "INTEGER"),
-        ("project", "nms_thresh",  "REAL NOT NULL DEFAULT 0.3"),
-        ("project", "user_id",     "TEXT NOT NULL DEFAULT ''"),
+        ("image",   "scene_index",  "INTEGER NOT NULL DEFAULT 0"),
+        ("image",   "scene_name",   "TEXT"),
+        ("image",   "edu_count",    "INTEGER"),
+        ("project", "nms_thresh",   "REAL NOT NULL DEFAULT 0.3"),
+        ("project", "user_id",      "TEXT NOT NULL DEFAULT ''"),
+        ("project", "dapi_channel", "INTEGER NOT NULL DEFAULT 0"),
     ]
     with engine.connect() as conn:
         for table, col, definition in new_cols:

@@ -6,6 +6,7 @@ import shutil
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from pydantic import BaseModel
 from sqlmodel import Session, func, select
 
 from .. import config, worker
@@ -35,7 +36,7 @@ def create_project(
     user_id: str = Depends(current_user),
 ) -> Project:
     project = Project(name=body.name, source_folder=body.source_folder or "", user_id=user_id)
-    for field in ("model_name", "sensitivity", "min_um2", "max_um2", "min_circ"):
+    for field in ("model_name", "sensitivity", "nms_thresh", "min_um2", "max_um2", "min_circ", "dapi_channel", "edu_channel"):
         val = getattr(body, field)
         if val is not None:
             setattr(project, field, val)
@@ -86,6 +87,42 @@ def get_project(
     return _require_project(project_id, user_id, session)
 
 
+class ProjectRename(BaseModel):
+    name: str
+
+
+@router.put("/{project_id}/name")
+def rename_project(
+    project_id: int,
+    body: ProjectRename,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
+) -> Project:
+    project = _require_project(project_id, user_id, session)
+    project.name = body.name.strip()
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+    return project
+
+
+@router.delete("/{project_id}/images/{image_id}")
+def delete_image(
+    project_id: int,
+    image_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
+) -> dict:
+    _require_project(project_id, user_id, session)
+    image = session.get(Image, image_id)
+    if image is None or image.project_id != project_id:
+        raise HTTPException(404, "image not found")
+    session.delete(image)
+    session.commit()
+    shutil.rmtree(config.project_dir(project_id) / "renders" / str(image_id), ignore_errors=True)
+    return {"deleted": image_id}
+
+
 @router.delete("/{project_id}")
 def delete_project(
     project_id: int,
@@ -112,7 +149,7 @@ def import_folder(
     folder = body.folder or project.source_folder
     if not folder:
         raise HTTPException(400, "no folder given and project has no source_folder")
-    new_ids = ingest.import_folder(session, project_id, folder)
+    new_ids = ingest.import_folder(session, project_id, folder, dapi_channel=project.dapi_channel)
     return {"added": len(new_ids), "image_ids": new_ids}
 
 
@@ -124,7 +161,7 @@ async def upload_files(
     user_id: str = Depends(current_user),
 ) -> dict:
     """Accept browser-uploaded .czi/.tif files, save to uploads dir, enqueue processing."""
-    _require_project(project_id, user_id, session)
+    project = _require_project(project_id, user_id, session)
 
     upload_dir = config.project_dir(project_id) / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -161,7 +198,7 @@ async def upload_files(
     if not saved:
         raise HTTPException(400, "no supported files (.czi/.tif/.tiff) in upload")
 
-    new_ids = ingest.import_folder(session, project_id, upload_dir)
+    new_ids = ingest.import_folder(session, project_id, upload_dir, dapi_channel=project.dapi_channel)
     return {"added": len(new_ids), "image_ids": new_ids}
 
 

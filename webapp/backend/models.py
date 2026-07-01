@@ -34,8 +34,9 @@ class Project(SQLModel, table=True):
     max_um2: float | None = None
     min_circ: float = 0.0
 
-    # Optional colocalization channels (EdU = proliferating; secondary metric).
-    edu_channel: int | None = None
+    # Channel assignments (which index in the acquisition corresponds to which stain).
+    dapi_channel: int = 0           # which channel index is DAPI / nuclei
+    edu_channel: int | None = None  # which channel index is EdU (None = no EdU)
     pdgfra_channel: int | None = None
 
 
