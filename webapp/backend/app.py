@@ -18,7 +18,7 @@ from . import worker
 from .db import get_engine
 from .routers import export, images, projects, review, settings
 
-_FRONTEND_DIST = Path(__file__).parent.parent.parent / "frontend" / "dist"
+_FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
 
 @asynccontextmanager
