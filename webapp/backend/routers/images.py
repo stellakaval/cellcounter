@@ -22,8 +22,10 @@ _EMPTY_CORRECTIONS = {"deleted": [], "added": []}
 
 
 class CorrectionsBody(BaseModel):
-    deleted: list[int]            # AI detection labels removed by the user
-    added: list[dict]             # manually placed points: {id, cx, cy}
+    deleted: list[int]            # AI detection labels removed from DAPI count
+    added: list[dict]             # manually placed DAPI points: {id, cx, cy}
+    added_edu: list[dict] = []   # manually placed EdU-only points: {id, cx, cy}
+    deleted_edu: list[int] = []  # AI detections marked as NOT EdU+ (still in DAPI count)
 
 router = APIRouter(prefix="/api", tags=["images"])
 
@@ -224,7 +226,10 @@ def put_corrections(
 ) -> dict:
     image = _require_done(session.get(Image, image_id))
     paths = _artifacts(image.project_id, image_id)
-    paths["corrections"].write_text(json.dumps({"deleted": body.deleted, "added": body.added}))
+    paths["corrections"].write_text(json.dumps({
+        "deleted": body.deleted, "added": body.added,
+        "added_edu": body.added_edu, "deleted_edu": body.deleted_edu,
+    }))
 
     # Recompute filtered_count with corrections applied
     project = session.get(Project, image.project_id)
@@ -250,6 +255,37 @@ def put_corrections(
 
     passing += len(body.added)
     image.filtered_count = passing
+
+    # Recompute edu_count if we have EdU ratio data
+    if paths["meta"].exists() and "edu_ratio" in props.columns:
+        import numpy as np
+        meta = json.loads(paths["meta"].read_text())
+        edu_threshold = meta.get("edu_threshold")
+        if edu_threshold is not None:
+            deleted_edu_set = set(body.deleted_edu)
+            edu_count = 0
+            for r in props.itertuples():
+                if int(r.label) in deleted_set:
+                    continue
+                if int(r.label) in deleted_edu_set:
+                    continue
+                area = getattr(r, "area_um2", None)
+                circ = float(getattr(r, "circularity", 0) or 0)
+                if min_um2 is not None and area is not None and not pd.isna(float(area)) and float(area) < min_um2:
+                    continue
+                if max_um2 is not None and area is not None and not pd.isna(float(area)) and float(area) > max_um2:
+                    continue
+                if min_circ is not None and circ < min_circ:
+                    continue
+                try:
+                    ratio = float(getattr(r, "edu_ratio", None) or 0)
+                    if not np.isnan(ratio) and ratio > edu_threshold:
+                        edu_count += 1
+                except (TypeError, ValueError):
+                    pass
+            edu_count += len(body.added_edu)
+            image.edu_count = edu_count
+
     session.add(image)
     session.commit()
 

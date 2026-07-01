@@ -111,8 +111,10 @@ export const getReviewProgress = (projectId: number) =>
   api.get<ReviewProgress>(`/projects/${projectId}/review-progress`).then(r => r.data)
 
 export interface Corrections {
-  deleted: number[]        // AI detection labels removed by user
-  added: { id: string; cx: number; cy: number }[]  // manually added points
+  deleted: number[]        // AI detection labels removed from DAPI count
+  added: { id: string; cx: number; cy: number }[]  // manually added to DAPI count
+  added_edu: { id: string; cx: number; cy: number }[]  // manually added to EdU count only
+  deleted_edu: number[]   // AI detections marked as NOT EdU+ (still counted in DAPI)
 }
 
 export const getCorrections = (imageId: number) =>

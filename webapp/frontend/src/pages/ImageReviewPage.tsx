@@ -52,7 +52,7 @@ function Slider({ label, value, min, max, step, onChange, onReset }: {
   )
 }
 
-const EMPTY_CORRECTIONS: Corrections = { deleted: [], added: [] }
+const EMPTY_CORRECTIONS: Corrections = { deleted: [], added: [], added_edu: [], deleted_edu: [] }
 
 export default function ImageReviewPage() {
   const { id: projectIdStr, imageId: imageIdStr } = useParams<{ id: string; imageId: string }>()
@@ -128,9 +128,14 @@ export default function ImageReviewPage() {
       else if (e.key === 'u') markAndAdvance('unreviewed')
       else if (e.key === 'ArrowRight' || e.key === 'n') goTo(currentIndex + 1)
       else if (e.key === 'ArrowLeft' || e.key === 'p') goTo(currentIndex - 1)
-      else if (e.key === 'o') setShowOverlay(v => !v)
+      else if (e.key === 'o' || e.key === 'O') setShowOverlay(v => !v)
       else if (e.key === '0') { setZoom(1); setPan({ x: 0, y: 0 }) }
-      else if (e.key === 'Tab') {
+      else if (e.key === '1' && currentImage?.channel_names) {
+        setActiveChannel(currentImage.dapi_channel ?? 0)
+      } else if (e.key === '2' && currentImage?.channel_names && currentImage.channel_names.length > 1) {
+        const eduIdx = currentImage.channel_names.findIndex(n => n.toLowerCase().includes('edu'))
+        setActiveChannel(eduIdx >= 0 ? eduIdx : 1)
+      } else if (e.key === 'Tab') {
         e.preventDefault()
         if (currentImage?.channel_names && currentImage.channel_names.length > 1) {
           const n = currentImage.channel_names.length
@@ -153,7 +158,15 @@ export default function ImageReviewPage() {
     return { imgX, imgY, bs: baseScale }
   }, [dets, pan, zoom, baseScale])
 
+  // Computed early — referenced in handleClick / updateHover callbacks
+  const activeMinUm2 = project?.min_um2 ?? 0
+  const activeEduThreshold = eduThreshold ?? dets?.edu_threshold ?? null
+  const eduChannelIdx = currentImage?.channel_names?.findIndex(n => n.toLowerCase().includes('edu')) ?? -1
+  const inEduMode = eduChannelIdx >= 0 && (activeChannel ?? currentImage?.dapi_channel) === eduChannelIdx
+
   const deletedSet = new Set(corrections.deleted)
+  const deletedEduSet = new Set(corrections.deleted_edu ?? [])
+  const addedEdu = corrections.added_edu ?? []
 
   // Short click (not a pan drag) → add or remove a cell
   const handleClick = useCallback((clientX: number, clientY: number) => {
@@ -161,36 +174,64 @@ export default function ImageReviewPage() {
     const coords = viewportToImage(clientX, clientY)
     if (!coords) return
     const { imgX, imgY, bs } = coords
-
-    // 18 screen-pixel hit area, converted to image pixels
     const THRESH_IMG = 18 / bs / zoom
-    const nearest = dets.detections.reduce<{ d: typeof dets.detections[0]; dist: number } | null>((best, d) => {
-      const dist = Math.hypot(d.cx - imgX, d.cy - imgY)
-      return dist < THRESH_IMG && (!best || dist < best.dist) ? { d, dist } : best
-    }, null)
+    const curr = corrections
 
-    // Also check manually-added points
-    const nearestAdded = corrections.added.reduce<{ pt: Corrections['added'][0]; dist: number } | null>((best, pt) => {
+    if (inEduMode) {
+      // EdU tab: interactions are scoped to EdU corrections only
+      const nearestEduAdded = (curr.added_edu ?? []).reduce<{ pt: { id: string; cx: number; cy: number }; dist: number } | null>((best, pt) => {
+        const dist = Math.hypot(pt.cx - imgX, pt.cy - imgY)
+        return dist < THRESH_IMG && (!best || dist < best.dist) ? { pt, dist } : best
+      }, null)
+
+      // Only consider visible EdU+ AI cells (above threshold, not deleted from DAPI)
+      const nearestEduAI = dets.detections.reduce<{ d: Detection; dist: number } | null>((best, d) => {
+        if (deletedSet.has(d.label)) return best
+        const eduMean = (d as any).edu_ratio ?? d.edu_mean
+        const isVisible = activeEduThreshold != null && eduMean != null && (eduMean > activeEduThreshold || deletedEduSet.has(d.label))
+        if (!isVisible) return best
+        const dist = Math.hypot(d.cx - imgX, d.cy - imgY)
+        return dist < THRESH_IMG && (!best || dist < best.dist) ? { d, dist } : best
+      }, null)
+
+      if (nearestEduAdded && (!nearestEduAI || nearestEduAdded.dist < nearestEduAI.dist)) {
+        corrMut.mutate({ ...curr, added_edu: (curr.added_edu ?? []).filter(p => p.id !== nearestEduAdded.pt.id) })
+      } else if (nearestEduAI) {
+        const label = nearestEduAI.d.label
+        const isMarkedNotEdu = (curr.deleted_edu ?? []).includes(label)
+        const deleted_edu = isMarkedNotEdu
+          ? (curr.deleted_edu ?? []).filter(l => l !== label)
+          : [...(curr.deleted_edu ?? []), label]
+        corrMut.mutate({ ...curr, deleted_edu })
+      } else {
+        corrMut.mutate({ ...curr, added_edu: [...(curr.added_edu ?? []), { id: `e${Date.now()}`, cx: imgX, cy: imgY }] })
+      }
+      return
+    }
+
+    // DAPI tab: original behavior
+    const nearestAdded = curr.added.reduce<{ pt: Corrections['added'][0]; dist: number } | null>((best, pt) => {
       const dist = Math.hypot(pt.cx - imgX, pt.cy - imgY)
       return dist < THRESH_IMG && (!best || dist < best.dist) ? { pt, dist } : best
     }, null)
 
-    const curr = corrections
+    const nearest = dets.detections.reduce<{ d: Detection; dist: number } | null>((best, d) => {
+      const dist = Math.hypot(d.cx - imgX, d.cy - imgY)
+      return dist < THRESH_IMG && (!best || dist < best.dist) ? { d, dist } : best
+    }, null)
+
     if (nearestAdded && (!nearest || nearestAdded.dist < nearest.dist)) {
-      // Remove a manually added point
       corrMut.mutate({ ...curr, added: curr.added.filter(p => p.id !== nearestAdded.pt.id) })
     } else if (nearest) {
-      // Toggle remove/restore on an AI detection
       const label = nearest.d.label
       const deleted = curr.deleted.includes(label)
         ? curr.deleted.filter(l => l !== label)
         : [...curr.deleted, label]
       corrMut.mutate({ ...curr, deleted })
     } else {
-      // Add a new cell at this point
       corrMut.mutate({ ...curr, added: [...curr.added, { id: `a${Date.now()}`, cx: imgX, cy: imgY }] })
     }
-  }, [dets, corrections, corrMut, viewportToImage, zoom])
+  }, [dets, corrections, corrMut, viewportToImage, zoom, inEduMode, deletedSet, deletedEduSet, activeEduThreshold])
 
   const updateHover = useCallback((clientX: number, clientY: number) => {
     if (!dets || dragDelta.current > 5) { setHover(null); return }
@@ -198,6 +239,31 @@ export default function ImageReviewPage() {
     if (!coords) { setHover(null); return }
     const { imgX, imgY, bs } = coords
     const THRESH = 18 / bs / zoom
+
+    if (inEduMode) {
+      const nearestEduAdded = (corrections.added_edu ?? []).reduce<{ pt: { id: string; cx: number; cy: number }; dist: number } | null>((best, pt) => {
+        const dist = Math.hypot(pt.cx - imgX, pt.cy - imgY)
+        return dist < THRESH && (!best || dist < best.dist) ? { pt, dist } : best
+      }, null)
+
+      const nearestEduAI = dets.detections.reduce<{ d: Detection; dist: number } | null>((best, d) => {
+        if (deletedSet.has(d.label)) return best
+        const eduMean = (d as any).edu_ratio ?? d.edu_mean
+        const isVisible = activeEduThreshold != null && eduMean != null && (eduMean > activeEduThreshold || deletedEduSet.has(d.label))
+        if (!isVisible) return best
+        const dist = Math.hypot(d.cx - imgX, d.cy - imgY)
+        return dist < THRESH && (!best || dist < best.dist) ? { d, dist } : best
+      }, null)
+
+      if (nearestEduAdded && (!nearestEduAI || nearestEduAdded.dist < nearestEduAI.dist)) {
+        setHover({ kind: 'added', id: nearestEduAdded.pt.id, x: clientX, y: clientY })
+      } else if (nearestEduAI) {
+        setHover({ kind: 'ai', det: nearestEduAI.d, deleted: deletedEduSet.has(nearestEduAI.d.label), x: clientX, y: clientY })
+      } else {
+        setHover({ kind: 'empty', x: clientX, y: clientY })
+      }
+      return
+    }
 
     const nearest = dets.detections.reduce<{ d: Detection; dist: number } | null>((best, d) => {
       const dist = Math.hypot(d.cx - imgX, d.cy - imgY)
@@ -216,7 +282,7 @@ export default function ImageReviewPage() {
     } else {
       setHover({ kind: 'empty', x: clientX, y: clientY })
     }
-  }, [dets, corrections, viewportToImage, zoom, deletedSet])
+  }, [dets, corrections, viewportToImage, zoom, deletedSet, deletedEduSet, inEduMode, activeEduThreshold])
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
@@ -252,11 +318,6 @@ export default function ImageReviewPage() {
     setBaseScale(Math.min(1, vw / dets.width, vh / dets.height))
   }, [dets?.width, dets?.height, imageId])
 
-  const activeMinUm2 = project?.min_um2 ?? 0
-  const activeEduThreshold = eduThreshold ?? dets?.edu_threshold ?? null
-  const eduChannelIdx = currentImage?.channel_names?.findIndex(n => n.toLowerCase().includes('edu')) ?? -1
-  const inEduMode = eduChannelIdx >= 0 && (activeChannel ?? currentImage?.dapi_channel) === eduChannelIdx
-
   const passingDets = dets
     ? dets.detections.filter(d => {
         if (deletedSet.has(d.label)) return false
@@ -271,13 +332,15 @@ export default function ImageReviewPage() {
   const hasEdu = dets?.edu_threshold != null
   const eduCount = hasEdu && activeEduThreshold != null
     ? passingDets.filter(d => {
+        if (deletedEduSet.has(d.label)) return false
         const val = d.edu_ratio ?? d.edu_mean
         return val != null && val > activeEduThreshold
-      }).length
+      }).length + addedEdu.length
     : null
 
   const reviewStatus = currentImage?.review_status ?? 'unreviewed'
-  const hasCorrections = corrections.deleted.length > 0 || corrections.added.length > 0
+  const hasCorrections = corrections.deleted.length > 0 || corrections.added.length > 0 ||
+    addedEdu.length > 0 || (corrections.deleted_edu ?? []).length > 0
 
   const medianRadius = useMemo(() => {
     if (!dets?.detections.length) return 15
@@ -304,14 +367,15 @@ export default function ImageReviewPage() {
       {/* Corrections hint bar */}
       {hasCorrections && (
         <div className="bg-gray-800 border-b border-gray-700 px-4 py-1.5 text-xs text-gray-400 flex items-center gap-4">
-          <span>
-            {corrections.deleted.length > 0 && `${corrections.deleted.length} removed`}
-            {corrections.deleted.length > 0 && corrections.added.length > 0 && ' · '}
-            {corrections.added.length > 0 && `${corrections.added.length} added`}
+          <span className="flex gap-3">
+            {corrections.deleted.length > 0 && <span className="text-teal-500">−{corrections.deleted.length} DAPI</span>}
+            {corrections.added.length > 0 && <span className="text-teal-400">+{corrections.added.length} DAPI</span>}
+            {(corrections.deleted_edu ?? []).length > 0 && <span className="text-orange-500">−{corrections.deleted_edu!.length} EdU</span>}
+            {addedEdu.length > 0 && <span className="text-orange-400">+{addedEdu.length} EdU</span>}
           </span>
           <button onClick={() => corrMut.mutate(EMPTY_CORRECTIONS)}
             className="text-gray-500 hover:text-red-400 ml-auto text-xs">
-            Reset
+            Reset all
           </button>
         </div>
       )}
@@ -350,13 +414,17 @@ export default function ImageReviewPage() {
                 eduThreshold={activeEduThreshold}
                 inEduMode={inEduMode}
                 addedRadius={medianRadius}
+                addedEdu={addedEdu}
+                deletedEdu={corrections.deleted_edu}
               />
             </div>
           ) : (
             <p className="absolute inset-0 flex items-center justify-center text-gray-500">Loading…</p>
           )}
           <div className="absolute bottom-2 left-3 text-xs text-gray-600 pointer-events-none">
-            Click cell to remove · click empty to add · scroll to zoom · drag to pan
+            {inEduMode
+              ? 'Click EdU+ to mark not-EdU · click empty to add EdU+ · scroll/drag to navigate'
+              : 'Click cell to remove · click empty to add DAPI nucleus · scroll/drag to navigate'}
           </div>
         </div>
 
@@ -376,18 +444,30 @@ export default function ImageReviewPage() {
                       {(hover.det.edu_ratio ?? hover.det.edu_mean)! > activeEduThreshold ? '● EdU+' : '● DAPI only'}
                     </p>
                   )}
-                  <p className={`mt-1 font-medium ${hover.deleted ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {hover.deleted ? '↩ Click to restore' : '✕ Click to remove'}
-                  </p>
+                  {inEduMode ? (
+                    <p className={`mt-1 font-medium ${hover.deleted ? 'text-emerald-400' : 'text-orange-400'}`}>
+                      {hover.deleted ? '↩ Click to restore EdU+' : '✕ Click to mark not EdU+'}
+                    </p>
+                  ) : (
+                    <p className={`mt-1 font-medium ${hover.deleted ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {hover.deleted ? '↩ Click to restore' : '✕ Click to remove'}
+                    </p>
+                  )}
                 </>
               )}
               {hover.kind === 'added' && (
                 <>
-                  <p className="font-semibold text-green-300">Manually added</p>
+                  <p className={`font-semibold ${inEduMode ? 'text-orange-300' : 'text-green-300'}`}>
+                    {inEduMode ? 'EdU+ manually added' : 'DAPI manually added'}
+                  </p>
                   <p className="text-red-400 font-medium">✕ Click to remove</p>
                 </>
               )}
-              {hover.kind === 'empty' && <p className="text-gray-400">+ Click to add nucleus</p>}
+              {hover.kind === 'empty' && (
+                <p className={inEduMode ? 'text-orange-400' : 'text-gray-400'}>
+                  {inEduMode ? '+ Click to add EdU+ marker' : '+ Click to add DAPI nucleus'}
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -443,7 +523,7 @@ export default function ImageReviewPage() {
               </div>
             )}
             {currentImage?.n_channels && currentImage.n_channels > 1 && (
-              <p className="text-[10px] text-gray-600 text-center">Tab to cycle channels</p>
+              <p className="text-[10px] text-gray-600 text-center">1=DAPI · 2=EdU · Tab=cycle</p>
             )}
             <button
               onClick={() => setShowOverlay(v => !v)}
@@ -451,7 +531,7 @@ export default function ImageReviewPage() {
                 showOverlay ? 'bg-teal-800/70 text-teal-200 ring-1 ring-teal-700' : 'bg-gray-800 text-gray-500'
               }`}
             >
-              {showOverlay ? '◉' : '○'} Outlines <kbd className="opacity-50 font-mono">O</kbd>
+              {showOverlay ? '◉' : '○'} Outlines <kbd className="opacity-50 font-mono">o</kbd>
             </button>
           </div>
 
