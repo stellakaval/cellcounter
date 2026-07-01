@@ -24,9 +24,13 @@ export default function ProjectListPage() {
       if (files && files.length > 0) {
         const fileArr = Array.from(files)
         setUploadProgress({ done: 0, total: fileArr.length })
-        for (let i = 0; i < fileArr.length; i++) {
-          await uploadFiles(proj.id, [fileArr[i]])
-          setUploadProgress({ done: i + 1, total: fileArr.length })
+        let done = 0
+        const CONCURRENCY = 3
+        for (let i = 0; i < fileArr.length; i += CONCURRENCY) {
+          const batch = fileArr.slice(i, i + CONCURRENCY)
+          await Promise.all(batch.map(f => uploadFiles(proj.id, [f])))
+          done += batch.length
+          setUploadProgress({ done, total: fileArr.length })
         }
       }
       return proj

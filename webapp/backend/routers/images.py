@@ -104,10 +104,10 @@ def _require_done(image: Image | None) -> Image:
 @router.get("/images/{image_id}/render")
 def render_image(
     image_id: int, channel: int | None = None, session: Session = Depends(get_session),
-    user_id: str = Depends(current_user),
 ):
+    # No auth on render/thumbnail — browser <img> tags can't send JWTs.
+    # Image IDs are only discoverable via auth-protected list endpoints.
     image = _require_done(session.get(Image, image_id))
-    _check_image_owner(image, user_id, session)
     paths = _artifacts(image.project_id, image_id)
     ch = image.dapi_channel if channel is None else channel
 
@@ -125,9 +125,8 @@ def render_image(
 
 
 @router.get("/images/{image_id}/thumbnail")
-def thumbnail(image_id: int, session: Session = Depends(get_session), user_id: str = Depends(current_user)):
+def thumbnail(image_id: int, session: Session = Depends(get_session)):
     image = _require_done(session.get(Image, image_id))
-    _check_image_owner(image, user_id, session)
     paths = _artifacts(image.project_id, image_id)
     thumb = paths["render_dapi"].with_name("thumb.png")
     if not thumb.exists():
