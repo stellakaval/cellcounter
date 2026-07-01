@@ -29,8 +29,22 @@ def _worker_loop() -> None:
         image_id = _job_queue.get()
         try:
             processing.process_image(image_id)
-        except Exception:  # never let one bad image kill the worker
-            pass
+        except Exception as exc:  # never let one bad image kill the worker
+            import logging
+            logging.exception(f"Worker failed on image {image_id}: {exc}")
+            try:
+                from sqlmodel import Session
+                from .db import get_engine
+                from .models import Image
+                with Session(get_engine()) as _s:
+                    _img = _s.get(Image, image_id)
+                    if _img and _img.status == "processing":
+                        _img.status = "error"
+                        _img.error = str(exc)[:500]
+                        _s.add(_img)
+                        _s.commit()
+            except Exception:
+                pass
         finally:
             _job_queue.task_done()
 

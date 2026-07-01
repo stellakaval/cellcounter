@@ -11,10 +11,20 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
+from ..auth import current_user
 from ..db import get_session
 from ..models import Project
 from ..schemas import SettingsUpdate
 from ..services import filters
+
+
+def _require_project(project_id: int, user_id: str, session: Session) -> Project:
+    p = session.get(Project, project_id)
+    if p is None:
+        raise HTTPException(404, "project not found")
+    if p.user_id and p.user_id != user_id:
+        raise HTTPException(403, "forbidden")
+    return p
 
 router = APIRouter(prefix="/api/projects", tags=["settings"])
 
@@ -23,10 +33,12 @@ _RESEGMENT_FIELDS = {"model_name", "sensitivity", "nms_thresh"}
 
 
 @router.get("/{project_id}/settings")
-def get_settings(project_id: int, session: Session = Depends(get_session)) -> dict:
-    project = session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(404, "project not found")
+def get_settings(
+    project_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
+) -> dict:
+    project = _require_project(project_id, user_id, session)
     return {
         f: getattr(project, f)
         for f in (
@@ -38,11 +50,12 @@ def get_settings(project_id: int, session: Session = Depends(get_session)) -> di
 
 @router.put("/{project_id}/settings")
 def update_settings(
-    project_id: int, body: SettingsUpdate, session: Session = Depends(get_session)
+    project_id: int,
+    body: SettingsUpdate,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
 ) -> dict:
-    project = session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(404, "project not found")
+    project = _require_project(project_id, user_id, session)
 
     changed = body.model_dump(exclude_unset=True)
     for field, value in changed.items():

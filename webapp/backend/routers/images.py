@@ -12,11 +12,22 @@ from sqlmodel import Session, select
 
 from cellcounter import io
 
+from ..auth import current_user
 from ..db import get_session
 from ..models import Image, Project
 from ..schemas import Detection, DetectionsResponse, ImageRow
 from ..services import rendering
 from ..services.processing import _artifacts
+
+
+def _check_project_owner(project_id: int, user_id: str, session: Session) -> None:
+    project = session.get(Project, project_id)
+    if project and project.user_id and project.user_id != user_id:
+        raise HTTPException(403, "forbidden")
+
+
+def _check_image_owner(image: Image, user_id: str, session: Session) -> None:
+    _check_project_owner(image.project_id, user_id, session)
 
 _EMPTY_CORRECTIONS = {"deleted": [], "added": []}
 
@@ -32,8 +43,11 @@ router = APIRouter(prefix="/api", tags=["images"])
 
 @router.get("/projects/{project_id}/images")
 def list_images(
-    project_id: int, session: Session = Depends(get_session)
+    project_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
 ) -> list[ImageRow]:
+    _check_project_owner(project_id, user_id, session)
     images = session.exec(
         select(Image).where(Image.project_id == project_id).order_by(Image.id)
     ).all()
@@ -67,10 +81,15 @@ def list_images(
 
 
 @router.get("/images/{image_id}")
-def get_image(image_id: int, session: Session = Depends(get_session)) -> Image:
+def get_image(
+    image_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
+) -> Image:
     image = session.get(Image, image_id)
     if image is None:
         raise HTTPException(404, "image not found")
+    _check_image_owner(image, user_id, session)
     return image
 
 
@@ -84,9 +103,11 @@ def _require_done(image: Image | None) -> Image:
 
 @router.get("/images/{image_id}/render")
 def render_image(
-    image_id: int, channel: int | None = None, session: Session = Depends(get_session)
+    image_id: int, channel: int | None = None, session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
 ):
     image = _require_done(session.get(Image, image_id))
+    _check_image_owner(image, user_id, session)
     paths = _artifacts(image.project_id, image_id)
     ch = image.dapi_channel if channel is None else channel
 
@@ -104,8 +125,9 @@ def render_image(
 
 
 @router.get("/images/{image_id}/thumbnail")
-def thumbnail(image_id: int, session: Session = Depends(get_session)):
+def thumbnail(image_id: int, session: Session = Depends(get_session), user_id: str = Depends(current_user)):
     image = _require_done(session.get(Image, image_id))
+    _check_image_owner(image, user_id, session)
     paths = _artifacts(image.project_id, image_id)
     thumb = paths["render_dapi"].with_name("thumb.png")
     if not thumb.exists():
@@ -119,9 +141,12 @@ def thumbnail(image_id: int, session: Session = Depends(get_session)):
 
 @router.get("/images/{image_id}/detections")
 def detections(
-    image_id: int, session: Session = Depends(get_session)
+    image_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
 ) -> DetectionsResponse:
     image = _require_done(session.get(Image, image_id))
+    _check_image_owner(image, user_id, session)
     paths = _artifacts(image.project_id, image_id)
 
     props = pd.read_csv(paths["detections"])
@@ -212,8 +237,13 @@ def detections(
 
 
 @router.get("/images/{image_id}/corrections")
-def get_corrections(image_id: int, session: Session = Depends(get_session)) -> dict:
+def get_corrections(
+    image_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
+) -> dict:
     image = _require_done(session.get(Image, image_id))
+    _check_image_owner(image, user_id, session)
     path = _artifacts(image.project_id, image_id)["corrections"]
     if not path.exists():
         return _EMPTY_CORRECTIONS
@@ -222,9 +252,13 @@ def get_corrections(image_id: int, session: Session = Depends(get_session)) -> d
 
 @router.put("/images/{image_id}/corrections")
 def put_corrections(
-    image_id: int, body: CorrectionsBody, session: Session = Depends(get_session)
+    image_id: int,
+    body: CorrectionsBody,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
 ) -> dict:
     image = _require_done(session.get(Image, image_id))
+    _check_image_owner(image, user_id, session)
     paths = _artifacts(image.project_id, image_id)
     paths["corrections"].write_text(json.dumps({
         "deleted": body.deleted, "added": body.added,

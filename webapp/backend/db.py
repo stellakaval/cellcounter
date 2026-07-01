@@ -7,6 +7,7 @@ Single-file SQLite shared by the request handlers and the background worker thre
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 
 from sqlalchemy import StaticPool
@@ -21,24 +22,38 @@ _engine = None
 def get_engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(
-            f"sqlite:///{config.db_path()}",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        db_url = os.environ.get("DATABASE_URL", f"sqlite:///{config.db_path()}")
+        if db_url.startswith("sqlite"):
+            _engine = create_engine(
+                db_url,
+                connect_args={"check_same_thread": False},
+                poolclass=StaticPool,
+            )
+        else:
+            _engine = create_engine(db_url)
         SQLModel.metadata.create_all(_engine)
         _migrate(_engine)
     return _engine
 
 
 def _migrate(engine) -> None:
-    """Add columns that may be missing in existing DBs (forward-only, additive)."""
+    """Add columns that may be missing in existing DBs (forward-only, additive).
+
+    SQLite only — Postgres gets the correct schema from create_all.
+    """
     from sqlalchemy import text
+
+    # Only run PRAGMA-based migrations on SQLite
+    url_str = str(engine.url)
+    if not url_str.startswith("sqlite"):
+        return
+
     new_cols = [
         ("image",   "scene_index", "INTEGER NOT NULL DEFAULT 0"),
         ("image",   "scene_name",  "TEXT"),
         ("image",   "edu_count",   "INTEGER"),
         ("project", "nms_thresh",  "REAL NOT NULL DEFAULT 0.3"),
+        ("project", "user_id",     "TEXT NOT NULL DEFAULT ''"),
     ]
     with engine.connect() as conn:
         for table, col, definition in new_cols:

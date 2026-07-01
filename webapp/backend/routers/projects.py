@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlmodel import Session, func, select
 
 from .. import config, worker
+from ..auth import current_user
 from ..db import get_session
 from ..models import Image, Project
 from ..schemas import ImportRequest, ProjectCreate, ProjectSummary, StatusResponse
@@ -17,9 +18,23 @@ from ..services import ingest
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
+def _require_project(project_id: int, user_id: str, session: Session) -> Project:
+    p = session.get(Project, project_id)
+    if p is None:
+        raise HTTPException(404, "project not found")
+    # Allow access if project has no user_id set (legacy/dev data)
+    if p.user_id and p.user_id != user_id:
+        raise HTTPException(403, "forbidden")
+    return p
+
+
 @router.post("")
-def create_project(body: ProjectCreate, session: Session = Depends(get_session)) -> Project:
-    project = Project(name=body.name, source_folder=body.source_folder or "")
+def create_project(
+    body: ProjectCreate,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
+) -> Project:
+    project = Project(name=body.name, source_folder=body.source_folder or "", user_id=user_id)
     for field in ("model_name", "sensitivity", "min_um2", "max_um2", "min_circ"):
         val = getattr(body, field)
         if val is not None:
@@ -31,8 +46,15 @@ def create_project(body: ProjectCreate, session: Session = Depends(get_session))
 
 
 @router.get("")
-def list_projects(session: Session = Depends(get_session)) -> list[ProjectSummary]:
-    projects = session.exec(select(Project).order_by(Project.id)).all()
+def list_projects(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
+) -> list[ProjectSummary]:
+    projects = session.exec(
+        select(Project)
+        .where((Project.user_id == user_id) | (Project.user_id == ""))
+        .order_by(Project.id)
+    ).all()
     out = []
     for p in projects:
         n_images = session.exec(
@@ -56,18 +78,21 @@ def list_projects(session: Session = Depends(get_session)) -> list[ProjectSummar
 
 
 @router.get("/{project_id}")
-def get_project(project_id: int, session: Session = Depends(get_session)) -> Project:
-    project = session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(404, "project not found")
-    return project
+def get_project(
+    project_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
+) -> Project:
+    return _require_project(project_id, user_id, session)
 
 
 @router.delete("/{project_id}")
-def delete_project(project_id: int, session: Session = Depends(get_session)) -> dict:
-    project = session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(404, "project not found")
+def delete_project(
+    project_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
+) -> dict:
+    project = _require_project(project_id, user_id, session)
     for image in session.exec(select(Image).where(Image.project_id == project_id)).all():
         session.delete(image)
     session.delete(project)
@@ -78,11 +103,12 @@ def delete_project(project_id: int, session: Session = Depends(get_session)) -> 
 
 @router.post("/{project_id}/import")
 def import_folder(
-    project_id: int, body: ImportRequest, session: Session = Depends(get_session)
+    project_id: int,
+    body: ImportRequest,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
 ) -> dict:
-    project = session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(404, "project not found")
+    project = _require_project(project_id, user_id, session)
     folder = body.folder or project.source_folder
     if not folder:
         raise HTTPException(400, "no folder given and project has no source_folder")
@@ -95,24 +121,25 @@ async def upload_files(
     project_id: int,
     files: List[UploadFile],
     session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
 ) -> dict:
     """Accept browser-uploaded .czi/.tif files, save to uploads dir, enqueue processing."""
-    project = session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(404, "project not found")
+    _require_project(project_id, user_id, session)
 
     upload_dir = config.project_dir(project_id) / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    # Filter to supported types and write to disk.
     SUPPORTED = {".czi", ".tif", ".tiff"}
+    MAX_BYTES = 300 * 1024 * 1024  # 300 MB per file
     saved = []
     for f in files:
         suffix = "." + f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
         if suffix not in SUPPORTED:
             continue
-        dest = upload_dir / f.filename
         content = await f.read()
+        if len(content) > MAX_BYTES:
+            raise HTTPException(413, f"{f.filename} exceeds 300 MB limit")
+        dest = upload_dir / f.filename
         dest.write_bytes(content)
         saved.append(dest)
 
@@ -124,8 +151,13 @@ async def upload_files(
 
 
 @router.post("/{project_id}/rerun")
-def rerun_project(project_id: int, session: Session = Depends(get_session)) -> dict:
+def rerun_project(
+    project_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
+) -> dict:
     """Re-queue all images in a project for re-segmentation (model/sensitivity changed)."""
+    _require_project(project_id, user_id, session)
     images = session.exec(select(Image).where(Image.project_id == project_id)).all()
     for img in images:
         img.status = "queued"
@@ -142,8 +174,11 @@ def rerun_project(project_id: int, session: Session = Depends(get_session)) -> d
 
 @router.get("/{project_id}/status")
 def project_status(
-    project_id: int, session: Session = Depends(get_session)
+    project_id: int,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
 ) -> StatusResponse:
+    _require_project(project_id, user_id, session)
     images = session.exec(select(Image).where(Image.project_id == project_id)).all()
     counts = {"queued": 0, "processing": 0, "done": 0, "error": 0}
     for img in images:

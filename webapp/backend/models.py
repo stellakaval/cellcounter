@@ -19,6 +19,7 @@ def _utcnow() -> datetime:
 
 class Project(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    user_id: str = Field(default="", index=True)  # Supabase user UUID; "" = dev/legacy
     name: str
     source_folder: str = ""
     created_at: datetime = Field(default_factory=_utcnow)

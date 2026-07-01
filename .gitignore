@@ -28,3 +28,7 @@ phase0_results/
 # Test / coverage artifacts
 .pytest_cache/
 .coverage
+
+# Frontend env files (contain secrets — use .env.example as template)
+webapp/frontend/.env.local
+webapp/frontend/.env.production

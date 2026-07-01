@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
+from ..auth import current_user
 from ..db import get_session
 from ..models import Project
 from ..services import export
@@ -21,10 +22,13 @@ def export_xlsx(
     project_id: int,
     include_per_cell: bool = False,
     session: Session = Depends(get_session),
+    user_id: str = Depends(current_user),
 ):
     project = session.get(Project, project_id)
     if project is None:
         raise HTTPException(404, "project not found")
+    if project.user_id and project.user_id != user_id:
+        raise HTTPException(403, "forbidden")
 
     out = Path(tempfile.gettempdir()) / f"cellcounter_project_{project_id}.xlsx"
     export.build_workbook(session, project_id, out, include_per_cell=include_per_cell)

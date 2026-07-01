@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 from . import worker
 from .db import get_engine
@@ -42,6 +47,17 @@ def _resume_queued() -> None:
 
 app = FastAPI(title="cellcounter web", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+_allowed_origins = os.environ.get(
+    "ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:4173"
+).split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(projects.router)
 app.include_router(images.router)
