@@ -91,7 +91,10 @@ export default function ImageReviewPage() {
 
   const corrMut = useMutation({
     mutationFn: (c: Corrections) => putCorrections(imageId, c),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['corrections', imageId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['corrections', imageId] })
+      qc.invalidateQueries({ queryKey: ['images', projectId] })
+    },
   })
 
   const goTo = useCallback((idx: number) => {

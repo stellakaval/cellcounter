@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 from cellcounter import io
 
 from ..db import get_session
-from ..models import Image
+from ..models import Image, Project
 from ..schemas import Detection, DetectionsResponse, ImageRow
 from ..services import rendering
 from ..services.processing import _artifacts
@@ -208,6 +208,34 @@ def put_corrections(
     image_id: int, body: CorrectionsBody, session: Session = Depends(get_session)
 ) -> dict:
     image = _require_done(session.get(Image, image_id))
-    path = _artifacts(image.project_id, image_id)["corrections"]
-    path.write_text(json.dumps({"deleted": body.deleted, "added": body.added}))
-    return {"ok": True}
+    paths = _artifacts(image.project_id, image_id)
+    paths["corrections"].write_text(json.dumps({"deleted": body.deleted, "added": body.added}))
+
+    # Recompute filtered_count with corrections applied
+    project = session.get(Project, image.project_id)
+    props = pd.read_csv(paths["detections"])
+    deleted_set = set(body.deleted)
+    min_um2 = project.min_um2 if project else None
+    max_um2 = project.max_um2 if project else None
+    min_circ = project.min_circ if project else None
+
+    passing = 0
+    for r in props.itertuples():
+        if int(r.label) in deleted_set:
+            continue
+        area = getattr(r, "area_um2", None)
+        circ = float(getattr(r, "circularity", 0) or 0)
+        if min_um2 is not None and area is not None and not pd.isna(float(area)) and float(area) < min_um2:
+            continue
+        if max_um2 is not None and area is not None and not pd.isna(float(area)) and float(area) > max_um2:
+            continue
+        if min_circ is not None and circ < min_circ:
+            continue
+        passing += 1
+
+    passing += len(body.added)
+    image.filtered_count = passing
+    session.add(image)
+    session.commit()
+
+    return {"ok": True, "filtered_count": passing}
