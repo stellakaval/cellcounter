@@ -12,6 +12,7 @@ interface Props {
   minCirc?: number | null
   scale: number
   eduThreshold?: number | null
+  inEduMode?: boolean
 }
 
 function passes(d: Detection, minUm2?: number | null, maxUm2?: number | null, minCirc?: number | null) {
@@ -23,7 +24,7 @@ function passes(d: Detection, minUm2?: number | null, maxUm2?: number | null, mi
 
 export default function OverlayCanvas({
   detections, corrections, width, height, showOverlay,
-  minUm2, maxUm2, minCirc, scale, eduThreshold,
+  minUm2, maxUm2, minCirc, scale, eduThreshold, inEduMode,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -70,12 +71,12 @@ export default function OverlayCanvas({
         continue
       }
 
-      const isEduPos = ok && eduThreshold != null && d.edu_mean != null && d.edu_mean > eduThreshold
+      const isEduPos = ok && inEduMode && eduThreshold != null && d.edu_mean != null && d.edu_mean > eduThreshold
       const color = !ok
         ? 'rgba(156,163,175,0.35)'
         : isEduPos
           ? 'rgba(251,146,60,0.95)'   // orange for EdU+
-          : 'rgba(56,231,186,0.95)'   // teal for DAPI only
+          : 'rgba(56,231,186,0.95)'   // teal for all on DAPI tab, DAPI-only on EdU tab
       ctx.strokeStyle = color
       ctx.lineWidth = ok ? 2.5 : 1.5
       ctx.setLineDash([])
@@ -129,7 +130,7 @@ export default function OverlayCanvas({
       ctx.fill()
       ctx.globalAlpha = 1
     }
-  }, [detections, corrections, showOverlay, minUm2, maxUm2, minCirc, scale, eduThreshold])
+  }, [detections, corrections, showOverlay, minUm2, maxUm2, minCirc, scale, eduThreshold, inEduMode])
 
   return (
     <canvas

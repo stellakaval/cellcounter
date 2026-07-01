@@ -344,6 +344,7 @@ export default function ImageReviewPage() {
                 minUm2={activeMinUm2} maxUm2={project?.max_um2} minCirc={project?.min_circ}
                 scale={baseScale}
                 eduThreshold={activeEduThreshold}
+                inEduMode={inEduMode}
               />
             </div>
           ) : (
