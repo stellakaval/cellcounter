@@ -87,6 +87,12 @@ export default function ImageReviewPage() {
   const isPanning = useRef(false)
   const dragDelta = useRef(0)
   const panStart = useRef({ mx: 0, my: 0, px: 0, py: 0 })
+
+  const undoStack = useRef<Corrections[]>([])
+  const redoStack = useRef<Corrections[]>([])
+  const corrRef = useRef<Corrections>(EMPTY_CORRECTIONS)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const corrMutRef = useRef<{ mutate: (c: Corrections) => void }>(null as any)
   const viewportRef = useRef<HTMLDivElement>(null)
 
   const { data: project } = useQuery({ queryKey: ['project', projectId], queryFn: () => getProject(projectId) })
@@ -115,12 +121,29 @@ export default function ImageReviewPage() {
     },
   })
 
+  // Keep refs current so closures in stable callbacks and keydown handler see latest state
+  corrRef.current = corrections
+  corrMutRef.current = corrMut
+
   const goTo = useCallback((idx: number) => {
     if (idx >= 0 && idx < doneImages.length) {
       setZoom(1); setPan({ x: 0, y: 0 }); setActiveChannel(null); setEduThreshold(null)
       nav(`/projects/${projectId}/images/${doneImages[idx].id}`)
     }
   }, [doneImages, projectId, nav])
+
+  // Reset undo/redo history when navigating to a new image
+  useEffect(() => {
+    undoStack.current = []
+    redoStack.current = []
+  }, [imageId])
+
+  // Wrapper around corrMut.mutate that saves state for undo
+  const applyCorrection = useCallback((next: Corrections) => {
+    undoStack.current.push(corrRef.current)
+    redoStack.current = []
+    corrMutRef.current.mutate(next)
+  }, [])
 
   const markAndAdvance = useCallback((status: ReviewStatus) => {
     reviewMut.mutate({ id: imageId, status })
@@ -130,6 +153,24 @@ export default function ImageReviewPage() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        if (undoStack.current.length > 0) {
+          const prev = undoStack.current.pop()!
+          redoStack.current.push(corrRef.current)
+          corrMutRef.current.mutate(prev)
+        }
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
+        e.preventDefault()
+        if (redoStack.current.length > 0) {
+          const next = redoStack.current.pop()!
+          undoStack.current.push(corrRef.current)
+          corrMutRef.current.mutate(next)
+        }
+        return
+      }
       if (e.key === 'a') markAndAdvance('approved')
       else if (e.key === 'f') markAndAdvance('needs_fix')
       else if (e.key === 'u') markAndAdvance('unreviewed')
@@ -212,16 +253,16 @@ export default function ImageReviewPage() {
       }, null)
 
       if (nearestEduAdded && (!nearestEduAI || nearestEduAdded.dist < nearestEduAI.dist)) {
-        corrMut.mutate({ ...curr, added_edu: (curr.added_edu ?? []).filter(p => p.id !== nearestEduAdded.pt.id) })
+        applyCorrection({ ...curr, added_edu: (curr.added_edu ?? []).filter(p => p.id !== nearestEduAdded.pt.id) })
       } else if (nearestEduAI) {
         const label = nearestEduAI.d.label
         const isMarkedNotEdu = (curr.deleted_edu ?? []).includes(label)
         const deleted_edu = isMarkedNotEdu
           ? (curr.deleted_edu ?? []).filter(l => l !== label)
           : [...(curr.deleted_edu ?? []), label]
-        corrMut.mutate({ ...curr, deleted_edu })
+        applyCorrection({ ...curr, deleted_edu })
       } else {
-        corrMut.mutate({ ...curr, added_edu: [...(curr.added_edu ?? []), { id: `e${Date.now()}`, cx: imgX, cy: imgY }] })
+        applyCorrection({ ...curr, added_edu: [...(curr.added_edu ?? []), { id: `e${Date.now()}`, cx: imgX, cy: imgY }] })
       }
       return
     }
@@ -240,17 +281,17 @@ export default function ImageReviewPage() {
     }, null)
 
     if (nearestAdded && (!nearest || nearestAdded.dist < nearest.dist)) {
-      corrMut.mutate({ ...curr, added: curr.added.filter(p => p.id !== nearestAdded.pt.id) })
+      applyCorrection({ ...curr, added: curr.added.filter(p => p.id !== nearestAdded.pt.id) })
     } else if (nearest) {
       const label = nearest.d.label
       const deleted = curr.deleted.includes(label)
         ? curr.deleted.filter(l => l !== label)
         : [...curr.deleted, label]
-      corrMut.mutate({ ...curr, deleted })
+      applyCorrection({ ...curr, deleted })
     } else {
-      corrMut.mutate({ ...curr, added: [...curr.added, { id: `a${Date.now()}`, cx: imgX, cy: imgY }] })
+      applyCorrection({ ...curr, added: [...curr.added, { id: `a${Date.now()}`, cx: imgX, cy: imgY }] })
     }
-  }, [dets, corrections, corrMut, viewportToImage, inEduMode, deletedSet, deletedEduSet, activeEduThreshold, medianRadius, activeMinUm2, project])
+  }, [dets, corrections, applyCorrection, viewportToImage, inEduMode, deletedSet, deletedEduSet, activeEduThreshold, medianRadius, activeMinUm2, project])
 
   const updateHover = useCallback((clientX: number, clientY: number) => {
     if (!dets || dragDelta.current > 5) { setHover(null); return }
@@ -386,8 +427,9 @@ export default function ImageReviewPage() {
             {(corrections.deleted_edu ?? []).length > 0 && <span className="text-orange-500">−{corrections.deleted_edu!.length} EdU</span>}
             {addedEdu.length > 0 && <span className="text-orange-400">+{addedEdu.length} EdU</span>}
           </span>
-          <button onClick={() => corrMut.mutate(EMPTY_CORRECTIONS)}
-            className="text-gray-500 hover:text-red-400 ml-auto text-xs">
+          <span className="text-gray-600 ml-auto">⌘Z undo</span>
+          <button onClick={() => applyCorrection(EMPTY_CORRECTIONS)}
+            className="text-gray-500 hover:text-red-400 text-xs">
             Reset all
           </button>
         </div>
