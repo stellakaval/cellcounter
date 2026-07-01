@@ -1,153 +1,170 @@
 # cellcounter
 
-A local, single-user desktop tool for counting cells in microscopy images. Drag an
-image onto a [napari](https://napari.org) window and an AI model segments and counts the
-cells; you can then correct mistakes by hand, filter by real-world size (µm²), and export
-per-cell measurements to CSV — replacing a fragile Fiji/ImageJ "Analyze Particles" macro.
+AI-powered cell counting web app for fluorescence microscopy. Upload `.czi` or `.tiff` images, get automatic DAPI nucleus counts and EdU+ proliferation ratios, review and correct detections interactively, then export to Excel.
 
-> **Status: Phase 1 MVP complete (pending live GUI check on a Mac with a display).** Phase 0
-> passed (StarDist works on the real DAPI images). The tool now does the full loop: **drop a
-> `.czi` → automatic cell count**, editable overlay, live µm²/circularity filters, CSV export,
-> multi-channel colocalization (% EdU+ and % EdU+ within PDGFRa+), folder batch → one CSV, and
-> save/load session. 23 unit tests pass on CPU.
+**Live app: [https://cellcounter-api.fly.dev](https://cellcounter-api.fly.dev)**
 
-## Models
+---
 
-- **Default: StarDist** `2D_versatile_fluo` (TensorFlow) — purpose-built for fluorescent
-  nuclei (DAPI), validated on the real images, and runs on Apple Silicon.
-- **Alternate: Cellpose-SAM** (`cellpose` ≥ 4.2, PyTorch/MPS) — generalist; enabled once its
-  weights (`cpsam_v2`) are present in `~/.cellpose/models/`.
+## What it does
 
-Both are available in the model dropdown so you can compare counts on your own data (e.g. on
-`E4_LDHi_1_5`: StarDist → 21, Cellpose-SAM → 19).
+- **Segment nuclei** with StarDist `2D_versatile_fluo` — purpose-built for DAPI fluorescence, no tuning needed
+- **EdU+ classification** via Otsu thresholding on per-nucleus EdU/DAPI intensity ratio
+- **Interactive review** — click to add or remove individual cells, toggle DAPI/EdU channels with `1`/`2`, keyboard-driven (`N`/`P` next/prev image, `O` overlay toggle, `A`/`R` approve/flag)
+- **Corrections are channel-aware** — DAPI additions (green) and EdU+ additions (orange) are tracked separately
+- **Per-project filters** — min/max cell area (µm²), circularity, NMS threshold, model sensitivity
+- **Excel export** — one row per image with DAPI count, EdU count, EdU%, and all filter settings
+- **Multi-scene `.czi` support** — each scene imported as a separate image
 
-## Install (Apple Silicon, verified)
+---
 
-Requires a **native arm64** Python 3.11 (an Intel/Rosetta Python will fail to find the
-TensorFlow wheel and won't get Metal/MPS). We use a `uv`-managed arm64 build:
+## Architecture
 
-```bash
-uv python install 3.11.15
-uv venv --python cpython-3.11.15-macos-aarch64-none .venv
-source .venv/bin/activate
-uv pip install ".[dev]"
+```
+Browser (React + Vite + Tailwind)
+    │  HTTPS
+    ▼
+Fly.io  (FastAPI + uvicorn, Docker)
+    ├── Supabase Postgres  — projects, images, counts
+    ├── /data volume (1 GB) — uploaded CZI files, labels, renders, CSVs
+    └── Supabase Auth      — Google OAuth, JWT verification
 ```
 
-(Use a **regular** install, not `-e`/editable: this machine's Python doesn't process the
-editable `.pth`, so an editable install makes `import cellcounter` fail. Re-run
-`uv pip install .` after changing the source.)
+- **Backend**: FastAPI, SQLModel, StarDist/TensorFlow, scikit-image, tifffile, czifile
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, Supabase JS client
+- **Auth**: Supabase Google OAuth → JWT → FastAPI `python-jose` verification
+- **Storage**: Fly.io persistent volume for image artifacts; Supabase Postgres for metadata
+- **Deploy**: Multi-stage Dockerfile (Node build → Python 3.11 slim), Fly.io
 
-See [`env/environment.md`](env/environment.md) for the exact step-by-step install order,
-the resolved package versions, and platform notes.
+---
 
-## Use it
+## Using the app
 
-Open the **Terminal** app on the Mac and run these three lines (the first two are one-time
-per terminal session):
+1. Go to **[https://cellcounter-api.fly.dev](https://cellcounter-api.fly.dev)**
+2. Sign in with Google
+3. Create a project, upload `.czi` or `.tiff` files (up to 300 MB each)
+4. Wait for segmentation to complete (StarDist loads on first run — ~30s cold start)
+5. Click any image to review detections
+6. Export results to Excel when done
+
+### Review keyboard shortcuts
+
+| Key | Action |
+|-----|--------|
+| `1` | Switch to DAPI channel |
+| `2` | Switch to EdU channel |
+| `Tab` | Cycle channels |
+| `O` | Toggle detection overlay |
+| `N` / `P` | Next / previous image |
+| `A` | Approve image |
+| `R` | Flag as needs review |
+| Click image | Add nucleus (channel-aware) |
+| Click detection | Remove detection |
+
+---
+
+## Local development
+
+### Prerequisites
+
+- Python 3.11 (arm64 on Apple Silicon)
+- Node 20+
+
+### Backend
 
 ```bash
-cd ~/Desktop/cellcounter
-source .venv/bin/activate
-cellcounter
+pip install -r webapp/requirements.txt
+pip install -e . --no-deps
+cd /path/to/cellcounter
+uvicorn webapp.backend.app:app --reload
 ```
 
-A napari window opens with the **cellcounter** panel docked on the right. (Tip: in this
-project's terminal you can also type `! cellcounter` to launch it directly.)
+No auth in local dev — the backend falls back to `"dev-user"` when `SUPABASE_JWT_SECRET` is not set.
 
-> **Note:** the app must be started from a normal desktop login session (your Terminal) so it
-> can open a window. It cannot be launched from a remote/headless/automated shell — that has no
-> display to draw on.
+### Frontend
 
-Then **drag a `.czi` (or TIFF) onto the window** — the DAPI channel is segmented automatically
-and a big cell count appears, with an editable `nuclei` overlay. From there:
+```bash
+cd webapp/frontend
+npm install
+npm run dev
+```
 
-- **Channels are split into named, colored layers** — `DAPI` (blue), `EdU` (red), `PDGFRa`
-  (green) — in the layer list (top-left). DAPI shows by default; click a marker's eye icon to
-  see it. So you always know which channel is which.
-- **See the original photo**: click **"Show original (hide outlines)"**, or **hold the `H` key**
-  to peek at the raw image while held (outlines reappear when you release).
-- **Adjust display contrast** to actually see dim DAPI (view only; doesn't change the count).
-- **Min/max area (µm²)** and **circularity** sliders filter the count live and
-  non-destructively — this is the "Analyze Particles" step, made interactive. **Min area
-  defaults to 30 µm²** to drop small noise/debris (see Accuracy below); lower it to 0 to see
-  every raw detection.
-- **Fix the AI** with napari's brush/erase on the `nuclei` layer, then click **Recount**.
-- **Sensitivity** trades more vs. fewer detections (one knob instead of Fiji's threshold dialogs).
-- **Export CSV** writes a per-cell table (areas in µm²) plus a one-row summary.
-- **Colocalization**: pick the EdU (and optional PDGFRa) channel → get **% EdU+ nuclei** and
-  **% EdU+ within PDGFRa+ OPCs** (positivity by per-nucleus marker intensity).
-- **Batch folder…** runs the current settings over a whole folder → one combined CSV
-  (one row per image) — this replaces the ImageJ macro.
-- **Save/Load session** persists the (edited) labels + all parameters for reproducibility.
+Set `webapp/frontend/.env.local` if you want Supabase auth locally:
+```
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJ...
+```
 
-No Fiji concepts (blur, threshold, watershed) — the AI replaces all of that. See
-[`docs/research_notes.md`](docs/research_notes.md) for the design rationale.
+---
+
+## Deployment
+
+The app is deployed on Fly.io as a single service (FastAPI serves the built React assets as static files).
+
+### Environment secrets (Fly.io)
+
+```bash
+fly secrets set \
+  SUPABASE_JWT_SECRET="..." \
+  DATABASE_URL="postgresql://..." \
+  ALLOWED_ORIGINS="https://cellcounter-api.fly.dev"
+```
+
+### Deploy
+
+```bash
+flyctl deploy \
+  --build-arg VITE_SUPABASE_URL=https://your-project.supabase.co \
+  --build-arg VITE_SUPABASE_ANON_KEY=eyJ...
+```
+
+The Dockerfile is multi-stage: Node 20 builds the frontend, Python 3.11-slim runs the server. Image size is ~755 MB (StarDist + TensorFlow only — napari/PyQt6/torch are excluded from the server image).
+
+### Infrastructure costs
+
+| Service | Tier | Cost |
+|---------|------|------|
+| Fly.io machine | shared-cpu-1x, 256 MB | ~$0–5/mo |
+| Fly.io volume | 1 GB persistent disk | ~$0.15/mo |
+| Supabase | Free tier (500 MB Postgres) | $0 |
+| **Total** | | **~$0–5/mo** |
+
+---
+
+## Project structure
+
+```
+cellcounter/
+├── src/cellcounter/        # Core library (IO, segmentation, measurement)
+├── webapp/
+│   ├── backend/            # FastAPI app
+│   │   ├── app.py          # Lifespan, CORS, static file mount
+│   │   ├── auth.py         # Supabase JWT verification
+│   │   ├── worker.py       # Background segmentation thread
+│   │   ├── models.py       # SQLModel DB models
+│   │   ├── db.py           # Engine setup (Postgres or SQLite)
+│   │   └── routers/        # projects, images, settings, review, export
+│   ├── frontend/           # React app
+│   │   └── src/
+│   │       ├── pages/      # ProjectsPage, ProjectPage, ImageReviewPage, LoginPage
+│   │       ├── components/ # OverlayCanvas, Sidebar, etc.
+│   │       └── api/        # Axios client + TypeScript types
+│   └── requirements.txt    # Web-only Python deps (no napari/torch)
+├── Dockerfile              # Multi-stage build
+├── fly.toml                # Fly.io config
+└── NEXT_VERSION.md         # Upcoming features + pre-release checklist
+```
+
+---
 
 ## Accuracy
 
-Counts are validated against hand-verified ground truth (`Book.xlsx`, Sheet1) across all 100
-real images. Without a size filter the AI over-counted by 26% (small noise/debris). With the
-**default 30 µm² minimum** the AI total is within **~1%** of the correct total and **85% of
-images are within ±2 cells** (94% within ±3). Re-check anytime with:
+Validated on 100 real DAPI/EdU images (Zeiss `.czi`, DAPI = channel 0). StarDist `2D_versatile_fluo` with a 30 µm² minimum area filter:
+- AI total within **~1%** of hand-verified ground truth
+- **85% of images within ±2 cells**, 94% within ±3
 
-```bash
-python scripts/validate_counts.py --folder ~/Desktop/cellsamples --truth ~/Desktop/Book.xlsx --min-um2 30
-```
+---
 
-The remaining per-image differences are handled by adjusting the size slider and the
-brush/erase hand-correction.
+## License
 
-## Phase 0 — model validation
-
-Generate synthetic test images, then run both models and compare:
-
-```bash
-python sample_data/make_synthetic.py          # writes TIFFs + prints ground-truth counts
-python scripts/phase0_validate.py             # runs on sample_data/ by default
-python scripts/phase0_validate.py --folder /path/to/real/images   # later, on real images
-```
-
-Per-image 3-panel figures (original | StarDist | Cellpose) are written to
-`phase0_results/`, and a count table is printed. The choice of default model and whether
-fine-tuning is needed is decided **after** validating on real microscopy images.
-
-### Phase 0 results — REAL images (`cellsamples/`, Zeiss `.czi`)
-
-Validated on a representative sample of 8 of the ~100 real DAPI/EdU images (the nuclei =
-**DAPI = channel 0**; Z-stacks max-projected). Counts are per field; these are sparse
-sorted-cell cultures, so per-field counts are naturally low (~8–21 over a ~320 µm field).
-
-| image (DAPI channel) | StarDist | Cellpose |
-|---|---|---|
-| `APOE_LDSort_OPC…` (2586², 3ch, 5 Z) | 8 | n/a¹ |
-| `E3_LDHi_3_2` (512²) | 9 | n/a¹ |
-| `E3_LDLow_1_5` (2586²) | 14 | n/a¹ |
-| `E3_LDLow_4_2` (512²) | 9 | n/a¹ |
-| `E4_1_2_5` (512²) | 16 | n/a¹ |
-| `E4_3_1_3` (512²) | 16 | n/a¹ |
-| `E4_LDHi_1_5` (512²) | 21 | 19 |
-| `E4_LDLow_1_3` (512²) | 10 | — |
-
-**Gate: PASS.** Visual inspection of the overlays (in `phase0_results/`) shows StarDist
-`2D_versatile_fluo` segments the DAPI nuclei **cleanly and accurately** on the real data —
-each bright nucleus a tight distinct region, close pairs correctly split — on both 512² and
-2586² fields and across all conditions. **No fine-tuning (Phase 3) is needed.** StarDist is
-purpose-built for fluorescent nuclei, which is exactly this data, so it is the **default**;
-Cellpose-SAM is selectable for comparison (e.g. `E4_LDHi_1_5`: StarDist 21 vs Cellpose 19).
-
-Synthetic-data validation (run earlier) also passed: StarDist matched ground truth exactly
-(`synthetic_single.tif` → 25/25, `synthetic_two_channel.tif` ch0 → 20/20).
-
-> The 8-image table above is StarDist-only because the original validation network
-> SNI-blocked `huggingface.co`, so Cellpose's weights couldn't be fetched then. On a later
-> network the official `cpsam_v2` downloaded fine and Cellpose was validated. If Cellpose
-> weights ever fail to download it's the network — fetch them from the official source and
-> place in `~/.cellpose/models/`.
-
-## License & non-commercial use
-
-The cellcounter source code is BSD-3-Clause (see [`LICENSE`](LICENSE)). Cellpose pretrained
-weights are trained on **CC-BY-NC** data, so use of this tool with Cellpose models — and any
-model fine-tuned from them — is restricted to **non-commercial research use**. This tool is
-intended for local, single-user, non-commercial research; no accounts, no cloud, no
-telemetry, and your images never leave your machine.
+BSD-3-Clause. Cellpose pretrained weights (optional, not used in the web app) are trained on CC-BY-NC data — non-commercial research use only.
