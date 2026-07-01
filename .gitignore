@@ -32,3 +32,4 @@ phase0_results/
 # Frontend env files (contain secrets — use .env.example as template)
 webapp/frontend/.env.local
 webapp/frontend/.env.production
+sample_data/
