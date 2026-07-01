@@ -1,0 +1,14 @@
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+sample_data/
+data/
+*.db
+.git
+.env*
+!webapp/frontend/.env.production
+webapp/frontend/node_modules
+webapp/frontend/dist
+env/
+*.egg-info
+.pytest_cache

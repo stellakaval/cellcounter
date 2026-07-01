@@ -14,10 +14,14 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 RUN apt-get update && apt-get install -y libgomp1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
+# Install web-only requirements (no napari/torch/cellpose)
+COPY webapp/requirements.txt ./webapp/requirements.txt
+RUN pip install --no-cache-dir -r webapp/requirements.txt
+# Install just the cellcounter package code (no deps — already installed above)
 COPY pyproject.toml ./
 COPY src/ ./src/
+RUN pip install --no-cache-dir --no-deps -e .
 COPY webapp/backend/ ./webapp/backend/
-RUN pip install --no-cache-dir -e ".[web]" psycopg2-binary "python-jose[cryptography]"
 COPY --from=frontend /app/frontend/dist ./webapp/frontend/dist
 ENV CELLCOUNTER_DATA=/data
 EXPOSE 8000

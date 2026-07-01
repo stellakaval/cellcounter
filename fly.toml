@@ -18,4 +18,4 @@ primary_region = "iad"
 [[mounts]]
   source = "cellcounter_data"
   destination = "/data"
-  initial_size = "10gb"
+  initial_size = "1gb"

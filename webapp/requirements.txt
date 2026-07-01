@@ -1,0 +1,24 @@
+# Web app server — minimal, no napari/PyQt6/torch/cellpose
+fastapi
+uvicorn[standard]
+python-multipart
+sqlmodel
+psycopg2-binary
+python-jose[cryptography]
+
+# Image I/O
+numpy>=1.26,<2.3
+scipy
+pandas
+tifffile
+czifile
+scikit-image
+pillow
+
+# Export
+openpyxl
+
+# Segmentation (stardist only — no torch/cellpose needed for server)
+tensorflow>=2.20,<2.22
+csbdeep>=0.8
+stardist>=0.9.2
