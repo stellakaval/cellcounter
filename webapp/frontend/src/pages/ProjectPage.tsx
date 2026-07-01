@@ -67,26 +67,52 @@ export default function ProjectPage() {
           <h1 className="text-xl font-semibold">{project?.name ?? '…'}</h1>
         </div>
 
-        {/* Progress bar */}
+        {/* Processing progress */}
         {status && (
-          <div className="mb-4">
+          <div className="mb-3">
             <div className="flex justify-between text-xs text-gray-400 mb-1">
-              <span>
-                {isProcessing
-                  ? `Processing… ${status.done}/${status.total}`
-                  : `${status.done} / ${status.total} processed`}
-              </span>
-              {progress && (
-                <span>
-                  {progress.approved} approved · {progress.needs_fix} needs fix · {progress.unreviewed} unreviewed
-                </span>
+              <span>{isProcessing ? `Processing… ${status.done}/${status.total}` : `${status.done} / ${status.total} processed`}</span>
+              {status.error > 0 && <span className="text-red-400">{status.error} errors</span>}
+            </div>
+            <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
+              <div className="h-full bg-indigo-500 transition-all"
+                style={{ width: `${status.total ? (status.done / status.total) * 100 : 0}%` }} />
+            </div>
+          </div>
+        )}
+
+        {/* Review progress bar */}
+        {progress && progress.total > 0 && (
+          <div className="mb-5 bg-gray-800/60 border border-gray-700 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium text-gray-200">Review progress</p>
+              {progress.unreviewed > 0 ? (
+                <span className="text-xs text-amber-400 font-medium">{progress.unreviewed} still need review</span>
+              ) : (
+                <span className="text-xs text-emerald-400 font-medium">All reviewed ✓</span>
               )}
             </div>
-            <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-indigo-500 transition-all"
-                style={{ width: `${status.total ? (status.done / status.total) * 100 : 0}%` }}
-              />
+            <div className="flex h-2.5 rounded-full overflow-hidden gap-0.5">
+              {progress.approved > 0 && (
+                <div title={`${progress.approved} approved`}
+                  className="bg-emerald-600 transition-all"
+                  style={{ width: `${(progress.approved / progress.total) * 100}%` }} />
+              )}
+              {progress.needs_fix > 0 && (
+                <div title={`${progress.needs_fix} needs fix`}
+                  className="bg-amber-500 transition-all"
+                  style={{ width: `${(progress.needs_fix / progress.total) * 100}%` }} />
+              )}
+              {progress.unreviewed > 0 && (
+                <div title={`${progress.unreviewed} unreviewed`}
+                  className="bg-gray-600 transition-all"
+                  style={{ width: `${(progress.unreviewed / progress.total) * 100}%` }} />
+              )}
+            </div>
+            <div className="flex gap-4 mt-2 text-xs text-gray-500">
+              {progress.approved > 0 && <span className="text-emerald-400">✓ {progress.approved} approved</span>}
+              {progress.needs_fix > 0 && <span className="text-amber-400">⚑ {progress.needs_fix} needs fix</span>}
+              {progress.unreviewed > 0 && <span>○ {progress.unreviewed} unreviewed</span>}
             </div>
           </div>
         )}

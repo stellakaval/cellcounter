@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -126,25 +126,32 @@ export default function ImageReviewPage() {
       if (e.key === 'a') markAndAdvance('approved')
       else if (e.key === 'f') markAndAdvance('needs_fix')
       else if (e.key === 'u') markAndAdvance('unreviewed')
-      else if (e.key === 'ArrowRight') goTo(currentIndex + 1)
-      else if (e.key === 'ArrowLeft') goTo(currentIndex - 1)
+      else if (e.key === 'ArrowRight' || e.key === 'n') goTo(currentIndex + 1)
+      else if (e.key === 'ArrowLeft' || e.key === 'p') goTo(currentIndex - 1)
       else if (e.key === 'o') setShowOverlay(v => !v)
       else if (e.key === '0') { setZoom(1); setPan({ x: 0, y: 0 }) }
+      else if (e.key === 'Tab') {
+        e.preventDefault()
+        if (currentImage?.channel_names && currentImage.channel_names.length > 1) {
+          const n = currentImage.channel_names.length
+          const curr = activeChannel ?? (currentImage.dapi_channel ?? 0)
+          setActiveChannel((curr + 1) % n)
+        }
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [markAndAdvance, goTo, currentIndex])
+  }, [markAndAdvance, goTo, currentIndex, currentImage, activeChannel])
 
   // Convert viewport click coords → image pixel coords + baseScale
   const viewportToImage = useCallback((clientX: number, clientY: number) => {
     if (!viewportRef.current || !dets) return null
     const rect = viewportRef.current.getBoundingClientRect()
     const vw = rect.width
-    const bs = Math.min(1, vw / Math.max(dets.width, dets.height))
-    const imgX = (clientX - rect.left - vw / 2 - pan.x) / zoom / bs + dets.width / 2
-    const imgY = (clientY - rect.top - rect.height / 2 - pan.y) / zoom / bs + dets.height / 2
-    return { imgX, imgY, bs }
-  }, [dets, pan, zoom])
+    const imgX = (clientX - rect.left - vw / 2 - pan.x) / zoom / baseScale + dets.width / 2
+    const imgY = (clientY - rect.top - rect.height / 2 - pan.y) / zoom / baseScale + dets.height / 2
+    return { imgX, imgY, bs: baseScale }
+  }, [dets, pan, zoom, baseScale])
 
   const deletedSet = new Set(corrections.deleted)
 
@@ -272,64 +279,45 @@ export default function ImageReviewPage() {
   const reviewStatus = currentImage?.review_status ?? 'unreviewed'
   const hasCorrections = corrections.deleted.length > 0 || corrections.added.length > 0
 
+  const medianRadius = useMemo(() => {
+    if (!dets?.detections.length) return 15
+    const areas = dets.detections.map(d => d.area_um2).filter((a): a is number => a != null)
+    if (!areas.length || !dets.pixel_um) return 15
+    const sorted = [...areas].sort((a, b) => a - b)
+    const med = sorted[Math.floor(sorted.length / 2)]
+    return Math.max(8, Math.sqrt(med / (dets.pixel_um ** 2) / Math.PI))
+  }, [dets])
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
-      {/* Top bar */}
-      <div className="flex items-center gap-3 px-6 py-3 bg-gray-900 border-b border-gray-800">
-        <Link to={`/projects/${projectId}`} className="text-gray-400 hover:text-gray-200 text-sm shrink-0">
+      {/* Slim top bar — just context, no actions */}
+      <div className="flex items-center gap-3 px-4 py-2 bg-gray-900 border-b border-gray-800 text-sm">
+        <Link to={`/projects/${projectId}`} className="text-gray-400 hover:text-gray-200 shrink-0">
           ← {project?.name ?? 'Project'}
         </Link>
         <span className="text-gray-600">/</span>
-        <span className="text-sm font-mono text-gray-300 truncate flex-1">{currentImage?.filename}</span>
-        <span className="text-xs text-gray-500 shrink-0">{currentIndex + 1} / {doneImages.length}</span>
-        <span className="text-xs text-gray-600 shrink-0">{Math.round(zoom * 100)}%</span>
-        {/* Channel selector — only shown for multi-channel images */}
-        {currentImage?.n_channels && currentImage.n_channels > 1 && currentImage.channel_names && (
-          <div className="flex gap-1 shrink-0">
-            {currentImage.channel_names.map((name, idx) => (
-              <button
-                key={idx}
-                onClick={() => setActiveChannel(idx)}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-                  (activeChannel ?? currentImage.dapi_channel) === idx
-                    ? 'bg-blue-700 text-white'
-                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-                }`}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-        )}
-        <button onClick={() => setShowOverlay(v => !v)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 flex items-center gap-1.5 ${
-            showOverlay ? 'bg-teal-700 text-teal-100 ring-1 ring-teal-500' : 'bg-gray-700 text-gray-400'
-          }`}>
-          <span>{showOverlay ? '◉' : '○'}</span> Outlines <kbd className="opacity-60">[O]</kbd>
-        </button>
-        <button onClick={() => goTo(currentIndex - 1)} disabled={currentIndex <= 0}
-          className="px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-sm">←</button>
-        <button onClick={() => goTo(currentIndex + 1)} disabled={currentIndex >= doneImages.length - 1}
-          className="px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-sm">→</button>
+        <span className="font-mono text-gray-300 truncate flex-1 text-xs">{currentImage?.filename}</span>
+        <span className="text-gray-500 shrink-0 text-xs tabular-nums">{currentIndex + 1} / {doneImages.length}</span>
+        <span className="text-gray-600 shrink-0 text-xs tabular-nums">{Math.round(zoom * 100)}%</span>
       </div>
 
       {/* Corrections hint bar */}
       {hasCorrections && (
-        <div className="bg-gray-800 border-b border-gray-700 px-6 py-1.5 text-xs text-gray-400 flex items-center gap-4">
+        <div className="bg-gray-800 border-b border-gray-700 px-4 py-1.5 text-xs text-gray-400 flex items-center gap-4">
           <span>
-            {corrections.deleted.length > 0 && `${corrections.deleted.length} cell${corrections.deleted.length !== 1 ? 's' : ''} removed`}
+            {corrections.deleted.length > 0 && `${corrections.deleted.length} removed`}
             {corrections.deleted.length > 0 && corrections.added.length > 0 && ' · '}
-            {corrections.added.length > 0 && `${corrections.added.length} cell${corrections.added.length !== 1 ? 's' : ''} added`}
+            {corrections.added.length > 0 && `${corrections.added.length} added`}
           </span>
           <button onClick={() => corrMut.mutate(EMPTY_CORRECTIONS)}
-            className="text-gray-500 hover:text-red-400 ml-auto">
-            Reset corrections
+            className="text-gray-500 hover:text-red-400 ml-auto text-xs">
+            Reset
           </button>
         </div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Image viewport — click to add/remove cells, drag to pan */}
+        {/* Image viewport */}
         <div
           ref={viewportRef}
           className="flex-1 overflow-hidden bg-gray-950 relative select-none"
@@ -361,23 +349,21 @@ export default function ImageReviewPage() {
                 scale={baseScale}
                 eduThreshold={activeEduThreshold}
                 inEduMode={inEduMode}
+                addedRadius={medianRadius}
               />
             </div>
           ) : (
-            <p className="absolute inset-0 flex items-center justify-center text-gray-500">Loading image…</p>
+            <p className="absolute inset-0 flex items-center justify-center text-gray-500">Loading…</p>
           )}
-          <div className="absolute bottom-2 left-3 text-xs text-gray-600 pointer-events-none space-y-0.5">
-            <p>Click a cell to remove it · Click empty space to add</p>
-            <p>Scroll to zoom · Drag to pan · [0] reset</p>
+          <div className="absolute bottom-2 left-3 text-xs text-gray-600 pointer-events-none">
+            Click cell to remove · click empty to add · scroll to zoom · drag to pan
           </div>
         </div>
 
         {/* Hover tooltip */}
         {hover && (
-          <div
-            className="fixed z-50 pointer-events-none"
-            style={{ left: Math.min(hover.x + 14, window.innerWidth - 210), top: hover.y - 10 }}
-          >
+          <div className="fixed z-50 pointer-events-none"
+            style={{ left: Math.min(hover.x + 14, window.innerWidth - 210), top: hover.y - 10 }}>
             <div className="bg-gray-900 border border-gray-600 rounded-lg shadow-2xl p-3 text-xs w-48 space-y-1.5">
               {hover.kind === 'ai' && (
                 <>
@@ -387,7 +373,7 @@ export default function ImageReviewPage() {
                   )}
                   {activeEduThreshold != null && (hover.det.edu_ratio ?? hover.det.edu_mean) != null && (
                     <p className={(hover.det.edu_ratio ?? hover.det.edu_mean)! > activeEduThreshold ? 'text-orange-400' : 'text-teal-400'}>
-                      {(hover.det.edu_ratio ?? hover.det.edu_mean)! > activeEduThreshold ? '● EdU+ (proliferating)' : '● DAPI only'}
+                      {(hover.det.edu_ratio ?? hover.det.edu_mean)! > activeEduThreshold ? '● EdU+' : '● DAPI only'}
                     </p>
                   )}
                   <p className={`mt-1 font-medium ${hover.deleted ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -398,20 +384,19 @@ export default function ImageReviewPage() {
               {hover.kind === 'added' && (
                 <>
                   <p className="font-semibold text-green-300">Manually added</p>
-                  <p className="text-red-400 font-medium mt-1">✕ Click to remove</p>
+                  <p className="text-red-400 font-medium">✕ Click to remove</p>
                 </>
               )}
-              {hover.kind === 'empty' && (
-                <p className="text-gray-400">+ Click to add a nucleus here</p>
-              )}
+              {hover.kind === 'empty' && <p className="text-gray-400">+ Click to add nucleus</p>}
             </div>
           </div>
         )}
 
-        {/* Sidebar */}
-        <div className="w-60 shrink-0 bg-gray-900 border-l border-gray-800 p-4 flex flex-col gap-5 overflow-y-auto">
-          {/* Counts — switches based on active channel */}
-          <div className="space-y-1">
+        {/* Sidebar — all controls in one column */}
+        <div className="w-56 shrink-0 bg-gray-900 border-l border-gray-800 flex flex-col overflow-y-auto">
+
+          {/* Count */}
+          <div className="px-4 pt-4 pb-3 border-b border-gray-800">
             {inEduMode ? (
               <div>
                 <p className="text-xs text-orange-400 uppercase tracking-wider mb-0.5">EdU+ nuclei</p>
@@ -425,14 +410,12 @@ export default function ImageReviewPage() {
                 <p className="text-xs text-teal-400 uppercase tracking-wider mb-0.5">DAPI nuclei</p>
                 <p className="text-3xl font-bold tabular-nums">{passing ?? '—'}</p>
                 {hasEdu && eduCount != null && passing != null && passing > 0 && (
-                  <p className="text-xs text-orange-400 mt-0.5">
-                    {eduCount} EdU+ ({Math.round(eduCount / passing * 100)}%)
-                  </p>
+                  <p className="text-xs text-orange-400 mt-0.5">{eduCount} EdU+ ({Math.round(eduCount / passing * 100)}%)</p>
                 )}
               </div>
             )}
             {hasCorrections && (
-              <p className="text-xs text-amber-400">
+              <p className="text-xs text-amber-400 mt-1">
                 {corrections.deleted.length > 0 && `−${corrections.deleted.length}`}
                 {corrections.deleted.length > 0 && corrections.added.length > 0 && ' '}
                 {corrections.added.length > 0 && `+${corrections.added.length}`}
@@ -440,57 +423,74 @@ export default function ImageReviewPage() {
             )}
           </div>
 
-          {/* Overlay toggle in sidebar too */}
-          <div>
+          {/* Channel toggle + overlay */}
+          <div className="px-3 py-3 border-b border-gray-800 space-y-2">
+            {currentImage?.n_channels && currentImage.n_channels > 1 && currentImage.channel_names && (
+              <div className="flex gap-1">
+                {currentImage.channel_names.map((name, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setActiveChannel(idx)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      (activeChannel ?? currentImage.dapi_channel) === idx
+                        ? 'bg-blue-700 text-white'
+                        : 'bg-gray-800 hover:bg-gray-700 text-gray-400'
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {currentImage?.n_channels && currentImage.n_channels > 1 && (
+              <p className="text-[10px] text-gray-600 text-center">Tab to cycle channels</p>
+            )}
             <button
               onClick={() => setShowOverlay(v => !v)}
-              className={`w-full py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all ${
-                showOverlay
-                  ? 'bg-teal-700/80 text-teal-100 ring-1 ring-teal-600'
-                  : 'bg-gray-700/50 text-gray-500'
+              className={`w-full py-1.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
+                showOverlay ? 'bg-teal-800/70 text-teal-200 ring-1 ring-teal-700' : 'bg-gray-800 text-gray-500'
               }`}
             >
-              <span className="text-base leading-none">{showOverlay ? '◉' : '○'}</span>
-              {showOverlay ? 'Outlines visible' : 'Outlines hidden'}
+              {showOverlay ? '◉' : '○'} Outlines <kbd className="opacity-50 font-mono">O</kbd>
             </button>
           </div>
 
+          {/* Review buttons */}
+          <div className="px-3 py-3 border-b border-gray-800 space-y-2">
+            <ReviewButton label="✓  Looks good" sublabel="Count is correct" hotkey="A"
+              active={reviewStatus === 'approved'}
+              onClick={() => reviewMut.mutate({ id: imageId, status: 'approved' })}
+              activeClass="bg-emerald-700 text-emerald-50" />
+            <ReviewButton label="⚑  Needs review" sublabel="Something looks off" hotkey="F"
+              active={reviewStatus === 'needs_fix'}
+              onClick={() => reviewMut.mutate({ id: imageId, status: 'needs_fix' })}
+              activeClass="bg-amber-700 text-amber-50" />
+            <ReviewButton label="○  Not reviewed" sublabel="Come back to this" hotkey="U"
+              active={reviewStatus === 'unreviewed'}
+              onClick={() => reviewMut.mutate({ id: imageId, status: 'unreviewed' })}
+              activeClass="bg-gray-600 text-gray-100" />
+          </div>
 
-          {/* Display */}
-          <div className="space-y-3">
-            <p className="text-xs text-gray-500 uppercase tracking-wider">Display</p>
+          {/* Navigation */}
+          <div className="px-3 py-3 border-b border-gray-800">
+            <div className="flex gap-2">
+              <button onClick={() => goTo(currentIndex - 1)} disabled={currentIndex <= 0}
+                className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-sm font-medium text-gray-300">
+                ← <kbd className="text-[10px] opacity-50 font-mono">P</kbd>
+              </button>
+              <button onClick={() => goTo(currentIndex + 1)} disabled={currentIndex >= doneImages.length - 1}
+                className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-sm font-medium text-gray-300">
+                <kbd className="text-[10px] opacity-50 font-mono">N</kbd> →
+              </button>
+            </div>
+          </div>
+
+          {/* Display sliders */}
+          <div className="px-3 py-3 space-y-3">
             <Slider label="Brightness" value={brightness} min={0.2} max={3} step={0.05}
               onChange={setBrightness} onReset={() => setBrightness(1)} />
             <Slider label="Contrast" value={contrast} min={0.2} max={3} step={0.05}
               onChange={setContrast} onReset={() => setContrast(1)} />
-          </div>
-
-          {/* Review */}
-          <div className="space-y-2.5 mt-auto">
-            <ReviewButton
-              label="✓  Looks good"
-              sublabel="Count looks correct"
-              hotkey="A"
-              active={reviewStatus === 'approved'}
-              onClick={() => reviewMut.mutate({ id: imageId, status: 'approved' })}
-              activeClass="bg-emerald-700 text-emerald-50"
-            />
-            <ReviewButton
-              label="⚑  Needs review"
-              sublabel="Something looks off"
-              hotkey="F"
-              active={reviewStatus === 'needs_fix'}
-              onClick={() => reviewMut.mutate({ id: imageId, status: 'needs_fix' })}
-              activeClass="bg-amber-700 text-amber-50"
-            />
-            <ReviewButton
-              label="○  Not reviewed"
-              sublabel="Come back to this"
-              hotkey="U"
-              active={reviewStatus === 'unreviewed'}
-              onClick={() => reviewMut.mutate({ id: imageId, status: 'unreviewed' })}
-              activeClass="bg-gray-600 text-gray-100"
-            />
           </div>
         </div>
       </div>

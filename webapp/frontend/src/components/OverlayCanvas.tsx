@@ -13,6 +13,7 @@ interface Props {
   scale: number
   eduThreshold?: number | null
   inEduMode?: boolean
+  addedRadius?: number
 }
 
 function passes(d: Detection, minUm2?: number | null, maxUm2?: number | null, minCirc?: number | null) {
@@ -24,7 +25,7 @@ function passes(d: Detection, minUm2?: number | null, maxUm2?: number | null, mi
 
 export default function OverlayCanvas({
   detections, corrections, width, height, showOverlay,
-  minUm2, maxUm2, minCirc, scale, eduThreshold, inEduMode,
+  minUm2, maxUm2, minCirc, scale, eduThreshold, inEduMode, addedRadius,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -100,28 +101,24 @@ export default function OverlayCanvas({
       ctx.shadowBlur = 0
     }
 
-    // Draw manually added cells as bright green + crosshair (DAPI tab only)
+    // Draw manually added cells as nucleus-style outlines (DAPI tab only)
     if (inEduMode) return
+    const color = '#4ade80'
+    const r = (addedRadius ?? 15) * scale
     ctx.shadowBlur = 4
-    ctx.shadowColor = '#4ade80'
-    ctx.strokeStyle = '#4ade80'
-    ctx.fillStyle = '#4ade8044'
-    ctx.lineWidth = 2
+    ctx.shadowColor = color
+    ctx.strokeStyle = color
+    ctx.lineWidth = 2.5
+    ctx.setLineDash([])
     for (const pt of corrections.added) {
-      const r = 8 * scale
       const x = pt.cx * scale
       const y = pt.cy * scale
       ctx.beginPath()
       ctx.arc(x, y, r, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.moveTo(x - r, y); ctx.lineTo(x + r, y)
-      ctx.moveTo(x, y - r); ctx.lineTo(x, y + r)
       ctx.stroke()
     }
     ctx.shadowBlur = 0
-  }, [detections, corrections, showOverlay, minUm2, maxUm2, minCirc, scale, eduThreshold, inEduMode])
+  }, [detections, corrections, showOverlay, minUm2, maxUm2, minCirc, scale, eduThreshold, inEduMode, addedRadius])
 
   return (
     <canvas
