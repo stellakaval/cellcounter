@@ -131,16 +131,31 @@ async def upload_files(
 
     SUPPORTED = {".czi", ".tif", ".tiff"}
     MAX_BYTES = 300 * 1024 * 1024  # 300 MB per file
+    CHUNK = 256 * 1024  # 256 KB chunks — keeps memory flat regardless of file size
     saved = []
     for f in files:
         suffix = "." + f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
         if suffix not in SUPPORTED:
             continue
-        content = await f.read()
-        if len(content) > MAX_BYTES:
-            raise HTTPException(413, f"{f.filename} exceeds 300 MB limit")
         dest = upload_dir / f.filename
-        dest.write_bytes(content)
+        size = 0
+        try:
+            with dest.open("wb") as out:
+                while True:
+                    chunk = await f.read(CHUNK)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > MAX_BYTES:
+                        out.close()
+                        dest.unlink(missing_ok=True)
+                        raise HTTPException(413, f"{f.filename} exceeds 300 MB limit")
+                    out.write(chunk)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            dest.unlink(missing_ok=True)
+            raise HTTPException(500, f"Failed to save {f.filename}: {exc}") from exc
         saved.append(dest)
 
     if not saved:

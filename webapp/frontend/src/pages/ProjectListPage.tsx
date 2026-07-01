@@ -10,6 +10,7 @@ export default function ProjectListPage() {
   const [name, setName] = useState('')
   const [files, setFiles] = useState<FileList | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { data: projects = [], isLoading } = useQuery({
@@ -21,7 +22,12 @@ export default function ProjectListPage() {
     mutationFn: async () => {
       const proj = await createProject({ name: name.trim() })
       if (files && files.length > 0) {
-        await uploadFiles(proj.id, files)
+        const fileArr = Array.from(files)
+        setUploadProgress({ done: 0, total: fileArr.length })
+        for (let i = 0; i < fileArr.length; i++) {
+          await uploadFiles(proj.id, [fileArr[i]])
+          setUploadProgress({ done: i + 1, total: fileArr.length })
+        }
       }
       return proj
     },
@@ -29,6 +35,7 @@ export default function ProjectListPage() {
       qc.invalidateQueries({ queryKey: ['projects'] })
       nav(`/projects/${proj.id}`)
     },
+    onSettled: () => setUploadProgress(null),
   })
 
   const deleteMut = useMutation({
@@ -116,15 +123,35 @@ export default function ProjectListPage() {
                   disabled={!name.trim() || !files || files.length === 0 || createMut.isPending}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-lg text-sm"
                 >
-                  {createMut.isPending ? 'Uploading…' : 'Create & Upload'}
+                  {uploadProgress
+                    ? `Uploading ${uploadProgress.done}/${uploadProgress.total}…`
+                    : createMut.isPending
+                    ? 'Creating…'
+                    : 'Create & Upload'}
                 </button>
                 <button
                   onClick={reset}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm"
+                  disabled={createMut.isPending}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded-lg text-sm"
                 >
                   Cancel
                 </button>
               </div>
+
+              {uploadProgress && (
+                <div>
+                  <div className="flex justify-between text-xs text-gray-400 mb-1">
+                    <span>Uploading files…</span>
+                    <span>{uploadProgress.done} / {uploadProgress.total}</span>
+                  </div>
+                  <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 transition-all duration-300"
+                      style={{ width: `${(uploadProgress.done / uploadProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {createMut.isError && (
                 <p className="text-red-400 text-sm">{String((createMut.error as any)?.response?.data?.detail ?? createMut.error)}</p>
